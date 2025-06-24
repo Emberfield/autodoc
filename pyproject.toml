@@ -31,6 +31,13 @@ dev = [
     "black>=23.12.1",
     "ruff>=0.1.8",
 ]
+graph = [
+    "neo4j>=5.15.0",
+    "matplotlib>=3.8.0",
+    "networkx>=3.2.1",
+    "plotly>=5.17.0",
+    "pyvis>=0.3.2",
+]
 
 [project.scripts]
 autodoc = "autodoc.cli:main"
@@ -56,6 +63,9 @@ serve = "python -m autodoc serve"
 analyze = "python -m autodoc analyze {args}"
 search = "python -m autodoc search {args}"
 summary = "python -m autodoc generate_summary"
+build-graph = "python -m autodoc build-graph {args}"
+visualize-graph = "python -m autodoc visualize-graph {args}"
+query-graph = "python -m autodoc query-graph {args}"
 test = "pytest {args:tests}"
 fmt = ["black .", "ruff check . --fix"]
 check = "python -m autodoc check"
@@ -65,5 +75,7 @@ line-length = 100
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
 select = ["E", "F", "I"]
 ignore = ["E501"]

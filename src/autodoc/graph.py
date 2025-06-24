@@ -16,7 +16,8 @@ from neo4j import Driver, GraphDatabase
 from neo4j.exceptions import ServiceUnavailable
 from pyvis.network import Network
 
-from autodoc.cli import CodeEntity, SimpleAutodoc
+from .analyzer import CodeEntity
+from .autodoc import SimpleAutodoc
 
 
 @dataclass
@@ -660,7 +661,6 @@ class CodeGraphVisualizer:
         modules = [d["module"] for d in complexity_data]
         complexity_scores = [d["complexity_score"] for d in complexity_data]
         entity_counts = [d["entity_count"] for d in complexity_data]
-        import_counts = [d["import_count"] for d in complexity_data]
 
         # Create heatmap
         fig = go.Figure()

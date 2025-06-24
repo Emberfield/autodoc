@@ -1,0 +1,94 @@
+name: Build and Publish to GCP Artifact Registry
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: 'Version bump type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+env:
+  PROJECT_ID: the-agent-factory
+  REGION: us-central1
+  REPOSITORY: autodoc-repo
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install hatch twine keyring keyrings.google-artifactregistry-auth
+
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+        service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+
+    - name: Configure Docker for Artifact Registry
+      run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
+
+    - name: Run tests
+      run: make test
+
+    - name: Build package
+      run: make build
+
+    - name: Publish to Artifact Registry
+      run: |
+        python -m twine upload \
+          --repository-url https://${{ env.REGION }}-python.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/simple/ \
+          --username _json_key_base64 \
+          dist/*
+
+    - name: Create release (manual trigger only)
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        # Bump version
+        hatch version ${{ github.event.inputs.version_type }}
+        NEW_VERSION=$(hatch version)
+        
+        # Commit and tag
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add pyproject.toml
+        git commit -m "bump version to $NEW_VERSION"
+        git tag "v$NEW_VERSION"
+        git push origin main
+        git push origin "v$NEW_VERSION"
+        
+        # Create GitHub release
+        gh release create "v$NEW_VERSION" \
+          --title "Release v$NEW_VERSION" \
+          --notes "Automated release v$NEW_VERSION" \
+          --latest
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
