@@ -4,11 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Autodoc is a minimal AI-powered code intelligence tool that analyzes Python codebases and enables semantic search using OpenAI embeddings. It parses Python files using AST (Abstract Syntax Tree) to extract functions and classes, then generates embeddings for intelligent code search.
+Autodoc is an AI-powered code intelligence tool that analyzes Python codebases (for now) and enables semantic search using OpenAI embeddings. It parses Python files using AST (Abstract Syntax Tree) to extract functions and classes, then generates embeddings for intelligent code search.
+
+## Project documentation
+
+Since autodoc generates documentation for codebases, we have checked in documentation for this codebase itself:
+`./comprehensive_data.json`
+`./comprehensive_docs.md`
+
+You should read these files to get an idea of how the project works and what files or functions you may need to change.
 
 ## Key Commands
 
 ### Development Environment
+
 ```bash
 # Create development environment
 hatch env create
