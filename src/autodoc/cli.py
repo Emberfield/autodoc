@@ -7,8 +7,10 @@ import os
 import ast
 import json
 import asyncio
+import re
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Union
 from dataclasses import dataclass, asdict
 
 import click
@@ -198,11 +200,14 @@ class SimpleAutodoc:
             console.print(f"[yellow]No cache file found at {path}[/yellow]")
 
     def generate_summary(self) -> Dict[str, Any]:
-        """Generate a comprehensive codebase summary"""
+        """Generate a comprehensive codebase summary optimized for LLM context"""
         if not self.entities:
             return {"error": "No analyzed code found. Run 'analyze' first."}
         
-        # Group entities by file
+        # Calculate comprehensive statistics
+        stats = self._calculate_statistics()
+        
+        # Group entities by file with enhanced information
         files = {}
         for entity in self.entities:
             file_path = entity.file_path
@@ -210,51 +215,119 @@ class SimpleAutodoc:
                 files[file_path] = {
                     "functions": [],
                     "classes": [],
-                    "module_doc": None
+                    "module_doc": self._extract_module_docstring(file_path),
+                    "imports": self._extract_imports(file_path),
+                    "complexity_score": 0,
+                    "exports": []
                 }
             
             if entity.type == 'function':
-                files[file_path]["functions"].append({
+                func_info = {
                     "name": entity.name,
                     "line": entity.line_number,
+                    "signature": self._extract_signature(entity),
                     "docstring": entity.docstring or "No description",
-                    "purpose": self._extract_purpose(entity)
-                })
+                    "purpose": self._extract_purpose(entity),
+                    "complexity": self._estimate_complexity(entity),
+                    "calls": self._extract_function_calls(entity),
+                    "decorators": self._extract_decorators(entity),
+                    "parameters": self._extract_parameters(entity),
+                    "return_type": self._extract_return_type(entity),
+                    "is_async": self._is_async_function(entity),
+                    "is_generator": self._is_generator(entity),
+                }
+                files[file_path]["functions"].append(func_info)
+                
+                # Track public exports
+                if not entity.name.startswith("_"):
+                    files[file_path]["exports"].append(entity.name)
+                    
             elif entity.type == 'class':
-                files[file_path]["classes"].append({
+                class_info = {
                     "name": entity.name,
                     "line": entity.line_number,
                     "docstring": entity.docstring or "No description",
-                    "methods": self._get_class_methods(entity, file_path)
-                })
+                    "base_classes": self._extract_base_classes(entity),
+                    "methods": [
+                        {
+                            "name": m.name,
+                            "line": m.line_number,
+                            "signature": self._extract_signature(m),
+                            "docstring": m.docstring or "No description",
+                            "purpose": self._extract_purpose(m),
+                            "is_static": self._is_static_method(m),
+                            "is_class_method": self._is_class_method(m),
+                            "is_property": self._is_property(m),
+                            "is_private": m.name.startswith("_"),
+                            "is_dunder": m.name.startswith("__") and m.name.endswith("__"),
+                        }
+                        for m in self._get_class_methods_detailed(entity, file_path)
+                    ],
+                    "attributes": self._extract_class_attributes(entity),
+                    "is_abstract": self._is_abstract_class(entity),
+                    "metaclass": self._extract_metaclass(entity),
+                }
+                files[file_path]["classes"].append(class_info)
+                
+                # Track public exports
+                if not entity.name.startswith("_"):
+                    files[file_path]["exports"].append(entity.name)
+            
+            # Update file complexity
+            files[file_path]["complexity_score"] += func_info.get("complexity", 1) if entity.type == "function" else 1
         
-        # Build feature map
-        feature_map = self._build_feature_map()
+        # Build comprehensive analysis
+        dependencies = self._analyze_dependencies(files)
+        feature_map = self._build_enhanced_feature_map()
+        key_functions = self._identify_key_functions()
+        class_hierarchy = self._build_detailed_class_hierarchy()
+        entry_points = self._identify_entry_points()
+        data_flows = self._analyze_data_flows()
+        architecture_patterns = self._identify_architecture_patterns()
         
-        # Create summary
+        # Create comprehensive summary
         summary = {
             "overview": {
                 "total_files": len(files),
                 "total_functions": len([e for e in self.entities if e.type == 'function']),
                 "total_classes": len([e for e in self.entities if e.type == 'class']),
                 "has_tests": any('test' in Path(f).name for f in files.keys()),
-                "main_language": "Python"
+                "main_language": "Python",
+                "analysis_date": datetime.now().isoformat(),
+                "tool_version": "autodoc 0.1.0",
+                "total_lines_analyzed": sum(len(open(f, 'r', encoding='utf-8', errors='ignore').readlines()) for f in files.keys() if Path(f).exists()),
+                "complexity_distribution": self._calculate_complexity_distribution(files),
             },
+            "statistics": stats,
             "modules": {},
             "feature_map": feature_map,
-            "key_functions": self._identify_key_functions(),
-            "class_hierarchy": self._build_class_hierarchy()
+            "key_functions": key_functions,
+            "class_hierarchy": class_hierarchy,
+            "dependencies": dependencies,
+            "entry_points": entry_points,
+            "data_flows": data_flows,
+            "architecture_patterns": architecture_patterns,
+            "project_structure": self._analyze_project_structure(files),
+            "code_quality_metrics": self._calculate_code_quality_metrics(files),
         }
         
-        # Process each file
+        # Process each file with detailed module information
         for file_path, content in files.items():
             module_name = self._path_to_module(file_path)
             summary["modules"][module_name] = {
-                "file": file_path,
-                "purpose": self._infer_module_purpose(file_path, content),
+                "file_path": file_path,
+                "relative_path": str(Path(file_path).relative_to(Path.cwd())) if Path(file_path).is_absolute() else file_path,
+                "purpose": self._infer_detailed_module_purpose(file_path, content),
+                "module_docstring": content["module_doc"],
                 "functions": content["functions"],
                 "classes": content["classes"],
-                "imports": self._extract_imports(file_path)
+                "imports": content["imports"],
+                "exports": content["exports"],
+                "complexity_score": content["complexity_score"],
+                "file_size_bytes": Path(file_path).stat().st_size if Path(file_path).exists() else 0,
+                "last_modified": Path(file_path).stat().st_mtime if Path(file_path).exists() else None,
+                "dependencies": dependencies.get(module_name, {}).get("imports", []),
+                "dependents": dependencies.get(module_name, {}).get("used_by", []),
             }
         
         return summary
@@ -408,60 +481,713 @@ class SimpleAutodoc:
             return "Module"
 
     def _extract_imports(self, file_path: str) -> List[str]:
-        """Extract imports from a file (simplified)"""
+        """Extract imports from a file"""
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+            
+            tree = ast.parse(content)
+            imports = []
+            
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        imports.append(f"import {alias.name}")
+                elif isinstance(node, ast.ImportFrom):
+                    module = node.module or ""
+                    for alias in node.names:
+                        imports.append(f"from {module} import {alias.name}")
+            
+            return imports
+        except Exception:
+            return []
+
+    def _calculate_statistics(self) -> Dict[str, Any]:
+        """Calculate comprehensive codebase statistics"""
+        stats = {
+            "function_count": len([e for e in self.entities if e.type == 'function']),
+            "class_count": len([e for e in self.entities if e.type == 'class']),
+            "total_entities": len(self.entities),
+            "files_analyzed": len(set(e.file_path for e in self.entities)),
+            "avg_functions_per_file": 0,
+            "avg_classes_per_file": 0,
+            "private_functions": len([e for e in self.entities if e.type == 'function' and e.name.startswith('_')]),
+            "public_functions": len([e for e in self.entities if e.type == 'function' and not e.name.startswith('_')]),
+            "test_functions": len([e for e in self.entities if e.type == 'function' and 'test_' in e.name.lower()]),
+            "documented_entities": len([e for e in self.entities if e.docstring]),
+            "documentation_coverage": 0,
+        }
+        
+        if stats["files_analyzed"] > 0:
+            stats["avg_functions_per_file"] = stats["function_count"] / stats["files_analyzed"]
+            stats["avg_classes_per_file"] = stats["class_count"] / stats["files_analyzed"]
+        
+        if stats["total_entities"] > 0:
+            stats["documentation_coverage"] = stats["documented_entities"] / stats["total_entities"]
+        
+        return stats
+
+    def _extract_module_docstring(self, file_path: str) -> Optional[str]:
+        """Extract module-level docstring"""
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+            
+            tree = ast.parse(content)
+            if (tree.body and isinstance(tree.body[0], ast.Expr) and 
+                isinstance(tree.body[0].value, ast.Constant) and 
+                isinstance(tree.body[0].value.value, str)):
+                return tree.body[0].value.value
+        except Exception:
+            pass
+        return None
+
+    def _extract_signature(self, entity: CodeEntity) -> str:
+        """Extract function/method signature"""
+        try:
+            with open(entity.file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                lines = f.readlines()
+            
+            if entity.line_number <= len(lines):
+                line = lines[entity.line_number - 1].strip()
+                if line.startswith('def ') or line.startswith('async def '):
+                    return line
+        except Exception:
+            pass
+        return f"def {entity.name}(...):"
+
+    def _estimate_complexity(self, entity: CodeEntity) -> int:
+        """Estimate code complexity based on entity name and context"""
+        complexity = 1
+        name = entity.name.lower()
+        
+        # Add complexity for certain patterns
+        if any(pattern in name for pattern in ['_complex', '_handler', '_processor', '_manager']):
+            complexity += 2
+        if entity.docstring and len(entity.docstring.split()) > 20:
+            complexity += 1
+        if any(pattern in name for pattern in ['create', 'update', 'delete', 'process']):
+            complexity += 1
+            
+        return complexity
+
+    def _extract_function_calls(self, entity: CodeEntity) -> List[str]:
+        """Extract function calls made by this entity (simplified)"""
+        # This would require more sophisticated AST analysis
+        # For now, return empty list
         return []
 
+    def _extract_decorators(self, entity: CodeEntity) -> List[str]:
+        """Extract decorators for functions/methods"""
+        try:
+            with open(entity.file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                lines = f.readlines()
+            
+            decorators = []
+            start_line = max(0, entity.line_number - 5)
+            for i in range(start_line, min(entity.line_number, len(lines))):
+                line = lines[i].strip()
+                if line.startswith('@'):
+                    decorators.append(line)
+            
+            return decorators
+        except Exception:
+            return []
+
+    def _extract_parameters(self, entity: CodeEntity) -> List[Dict[str, str]]:
+        """Extract function parameters"""
+        # Simplified implementation
+        signature = self._extract_signature(entity)
+        params = []
+        
+        # Extract parameters from signature (basic regex)
+        match = re.search(r'\((.*?)\):', signature)
+        if match:
+            param_str = match.group(1)
+            if param_str.strip():
+                for param in param_str.split(','):
+                    param = param.strip()
+                    if param and param != 'self' and param != 'cls':
+                        params.append({"name": param.split('=')[0].strip(), "default": "=" in param})
+        
+        return params
+
+    def _extract_return_type(self, entity: CodeEntity) -> Optional[str]:
+        """Extract return type annotation"""
+        signature = self._extract_signature(entity)
+        match = re.search(r'->\s*([^:]+):', signature)
+        return match.group(1).strip() if match else None
+
+    def _is_async_function(self, entity: CodeEntity) -> bool:
+        """Check if function is async"""
+        signature = self._extract_signature(entity)
+        return signature.strip().startswith('async def')
+
+    def _is_generator(self, entity: CodeEntity) -> bool:
+        """Check if function is a generator (simplified)"""
+        # Would need AST analysis to detect yield statements
+        return False
+
+    def _get_class_methods_detailed(self, class_entity: CodeEntity, file_path: str) -> List[CodeEntity]:
+        """Get detailed methods belonging to a class"""
+        methods = []
+        class_line = class_entity.line_number
+        
+        for entity in self.entities:
+            if (entity.type == 'function' and 
+                entity.file_path == file_path and
+                entity.line_number > class_line):
+                methods.append(entity)
+                if len(methods) > 20:  # Limit to prevent excessive data
+                    break
+        
+        return methods
+
+    def _extract_base_classes(self, entity: CodeEntity) -> List[str]:
+        """Extract base classes"""
+        try:
+            with open(entity.file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+            
+            tree = ast.parse(content)
+            for node in ast.walk(tree):
+                if (isinstance(node, ast.ClassDef) and 
+                    node.name == entity.name and 
+                    node.lineno == entity.line_number):
+                    return [ast.unparse(base) for base in node.bases]
+        except Exception:
+            pass
+        return []
+
+    def _is_static_method(self, entity: CodeEntity) -> bool:
+        """Check if method is static"""
+        decorators = self._extract_decorators(entity)
+        return any('@staticmethod' in dec for dec in decorators)
+
+    def _is_class_method(self, entity: CodeEntity) -> bool:
+        """Check if method is a class method"""
+        decorators = self._extract_decorators(entity)
+        return any('@classmethod' in dec for dec in decorators)
+
+    def _is_property(self, entity: CodeEntity) -> bool:
+        """Check if method is a property"""
+        decorators = self._extract_decorators(entity)
+        return any('@property' in dec for dec in decorators)
+
+    def _extract_class_attributes(self, entity: CodeEntity) -> List[Dict[str, Any]]:
+        """Extract class attributes"""
+        # Simplified implementation
+        return []
+
+    def _is_abstract_class(self, entity: CodeEntity) -> bool:
+        """Check if class is abstract"""
+        decorators = self._extract_decorators(entity)
+        return any('ABC' in dec or 'abstractmethod' in dec for dec in decorators)
+
+    def _extract_metaclass(self, entity: CodeEntity) -> Optional[str]:
+        """Extract metaclass information"""
+        # Would need AST analysis
+        return None
+
+    def _analyze_dependencies(self, files: Dict[str, Any]) -> Dict[str, Any]:
+        """Analyze module dependencies"""
+        dependencies = {}
+        
+        for file_path, content in files.items():
+            module_name = self._path_to_module(file_path)
+            dependencies[module_name] = {
+                "imports": content["imports"],
+                "used_by": [],
+                "complexity": content["complexity_score"]
+            }
+        
+        return dependencies
+
+    def _build_enhanced_feature_map(self) -> Dict[str, List[Dict[str, Any]]]:
+        """Build enhanced feature map with detailed locations"""
+        feature_map = {
+            "authentication": [],
+            "database": [],
+            "api_endpoints": [],
+            "data_processing": [],
+            "file_operations": [],
+            "testing": [],
+            "configuration": [],
+            "utilities": [],
+            "cli_commands": [],
+            "async_operations": [],
+        }
+        
+        for entity in self.entities:
+            name_lower = entity.name.lower()
+            file_lower = entity.file_path.lower()
+            
+            entity_info = {
+                "name": entity.name,
+                "type": entity.type,
+                "location": f"{Path(entity.file_path).name}:{entity.line_number}",
+                "module": self._path_to_module(entity.file_path),
+                "purpose": self._extract_purpose(entity)
+            }
+            
+            if any(auth in name_lower for auth in ['auth', 'login', 'token', 'permission']):
+                feature_map["authentication"].append(entity_info)
+            
+            if any(db in name_lower for db in ['db', 'database', 'query', 'model', 'orm']):
+                feature_map["database"].append(entity_info)
+                
+            if any(api in name_lower for api in ['api', 'endpoint', 'route', 'view']):
+                feature_map["api_endpoints"].append(entity_info)
+                
+            if any(proc in name_lower for proc in ['process', 'transform', 'parse', 'analyze']):
+                feature_map["data_processing"].append(entity_info)
+                
+            if any(file_op in name_lower for file_op in ['read', 'write', 'save', 'load', 'file']):
+                feature_map["file_operations"].append(entity_info)
+                
+            if 'test' in file_lower or 'test_' in name_lower:
+                feature_map["testing"].append(entity_info)
+                
+            if any(conf in file_lower for conf in ['config', 'settings', 'env']):
+                feature_map["configuration"].append(entity_info)
+                
+            if any(util in file_lower for util in ['util', 'helper', 'common']):
+                feature_map["utilities"].append(entity_info)
+                
+            if 'cli' in file_lower or any(cli in name_lower for cli in ['command', 'click']):
+                feature_map["cli_commands"].append(entity_info)
+                
+            if self._is_async_function(entity):
+                feature_map["async_operations"].append(entity_info)
+        
+        return {k: v for k, v in feature_map.items() if v}
+
+    def _build_detailed_class_hierarchy(self) -> Dict[str, Any]:
+        """Build detailed class hierarchy information"""
+        classes = {}
+        
+        for entity in self.entities:
+            if entity.type == 'class':
+                classes[entity.name] = {
+                    "module": self._path_to_module(entity.file_path),
+                    "file_path": entity.file_path,
+                    "line_number": entity.line_number,
+                    "docstring": entity.docstring or "No description",
+                    "base_classes": self._extract_base_classes(entity),
+                    "methods": [m.name for m in self._get_class_methods_detailed(entity, entity.file_path)],
+                    "is_abstract": self._is_abstract_class(entity),
+                    "location": f"{Path(entity.file_path).name}:{entity.line_number}"
+                }
+        
+        return classes
+
+    def _identify_entry_points(self) -> List[Dict[str, Any]]:
+        """Identify entry points in the codebase"""
+        entry_points = []
+        
+        for entity in self.entities:
+            if entity.type == 'function':
+                # Main functions
+                if entity.name == 'main':
+                    entry_points.append({
+                        "type": "main_function",
+                        "name": entity.name,
+                        "location": f"{Path(entity.file_path).name}:{entity.line_number}",
+                        "module": self._path_to_module(entity.file_path)
+                    })
+                
+                # CLI commands
+                decorators = self._extract_decorators(entity)
+                if any('@click.command' in dec or '@cli.command' in dec for dec in decorators):
+                    entry_points.append({
+                        "type": "cli_command",
+                        "name": entity.name,
+                        "location": f"{Path(entity.file_path).name}:{entity.line_number}",
+                        "module": self._path_to_module(entity.file_path)
+                    })
+        
+        return entry_points
+
+    def _analyze_data_flows(self) -> List[Dict[str, Any]]:
+        """Analyze data flows in the codebase"""
+        # Simplified implementation
+        flows = []
+        
+        # Identify common patterns
+        for entity in self.entities:
+            if entity.type == 'function':
+                name = entity.name.lower()
+                if 'load' in name or 'read' in name:
+                    flows.append({
+                        "type": "data_input",
+                        "function": entity.name,
+                        "location": f"{Path(entity.file_path).name}:{entity.line_number}",
+                        "purpose": "Loads/reads data"
+                    })
+                elif 'save' in name or 'write' in name:
+                    flows.append({
+                        "type": "data_output",
+                        "function": entity.name,
+                        "location": f"{Path(entity.file_path).name}:{entity.line_number}",
+                        "purpose": "Saves/writes data"
+                    })
+                elif 'process' in name or 'transform' in name:
+                    flows.append({
+                        "type": "data_processing",
+                        "function": entity.name,
+                        "location": f"{Path(entity.file_path).name}:{entity.line_number}",
+                        "purpose": "Processes/transforms data"
+                    })
+        
+        return flows
+
+    def _identify_architecture_patterns(self) -> List[Dict[str, Any]]:
+        """Identify architectural patterns in the codebase"""
+        patterns = []
+        
+        # Check for common patterns
+        class_names = [e.name for e in self.entities if e.type == 'class']
+        function_names = [e.name for e in self.entities if e.type == 'function']
+        
+        # Singleton pattern
+        if any('singleton' in name.lower() for name in class_names):
+            patterns.append({"pattern": "Singleton", "confidence": "high"})
+        
+        # Factory pattern
+        if any('factory' in name.lower() for name in class_names + function_names):
+            patterns.append({"pattern": "Factory", "confidence": "medium"})
+        
+        # Observer pattern
+        if any('observer' in name.lower() or 'listener' in name.lower() for name in class_names):
+            patterns.append({"pattern": "Observer", "confidence": "medium"})
+        
+        # Command pattern
+        if any('command' in name.lower() for name in class_names):
+            patterns.append({"pattern": "Command", "confidence": "medium"})
+        
+        return patterns
+
+    def _analyze_project_structure(self, files: Dict[str, Any]) -> Dict[str, Any]:
+        """Analyze overall project structure"""
+        structure = {
+            "directories": {},
+            "file_types": {},
+            "organization_score": 0,
+        }
+        
+        # Analyze directory structure
+        for file_path in files.keys():
+            path = Path(file_path)
+            dir_name = str(path.parent)
+            
+            if dir_name not in structure["directories"]:
+                structure["directories"][dir_name] = {
+                    "file_count": 0,
+                    "functions": 0,
+                    "classes": 0
+                }
+            
+            structure["directories"][dir_name]["file_count"] += 1
+            structure["directories"][dir_name]["functions"] += len(files[file_path]["functions"])
+            structure["directories"][dir_name]["classes"] += len(files[file_path]["classes"])
+        
+        # Analyze file types
+        for file_path in files.keys():
+            ext = Path(file_path).suffix
+            structure["file_types"][ext] = structure["file_types"].get(ext, 0) + 1
+        
+        return structure
+
+    def _calculate_code_quality_metrics(self, files: Dict[str, Any]) -> Dict[str, Any]:
+        """Calculate code quality metrics"""
+        total_functions = sum(len(f["functions"]) for f in files.values())
+        documented_functions = sum(
+            len([func for func in f["functions"] if func["docstring"] != "No description"])
+            for f in files.values()
+        )
+        
+        return {
+            "documentation_coverage": documented_functions / total_functions if total_functions > 0 else 0,
+            "average_complexity": sum(f["complexity_score"] for f in files.values()) / len(files) if files else 0,
+            "public_api_ratio": sum(len(f["exports"]) for f in files.values()) / total_functions if total_functions > 0 else 0,
+        }
+
+    def _calculate_complexity_distribution(self, files: Dict[str, Any]) -> Dict[str, int]:
+        """Calculate complexity distribution across files"""
+        distribution = {"low": 0, "medium": 0, "high": 0}
+        
+        for file_data in files.values():
+            score = file_data["complexity_score"]
+            if score <= 5:
+                distribution["low"] += 1
+            elif score <= 15:
+                distribution["medium"] += 1
+            else:
+                distribution["high"] += 1
+        
+        return distribution
+
+    def _infer_detailed_module_purpose(self, file_path: str, content: Dict[str, Any]) -> str:
+        """Infer detailed module purpose"""
+        filename = Path(file_path).stem.lower()
+        
+        if filename == '__init__':
+            return "Package initialization and exports"
+        elif filename == '__main__':
+            return "Application entry point"
+        elif 'test' in filename:
+            return f"Test module with {len(content['functions'])} test functions"
+        elif 'config' in filename or 'settings' in filename:
+            return "Configuration and settings management"
+        elif 'model' in filename:
+            return f"Data models and schemas ({len(content['classes'])} classes)"
+        elif 'util' in filename or 'helper' in filename:
+            return f"Utility functions and helpers ({len(content['functions'])} functions)"
+        elif 'cli' in filename:
+            return f"Command-line interface with {len(content['functions'])} commands"
+        elif 'api' in filename:
+            return f"API endpoints and handlers ({len(content['functions'])} endpoints)"
+        elif content['classes']:
+            return f"Module defining {len(content['classes'])} classes and {len(content['functions'])} functions"
+        elif content['functions']:
+            return f"Function module with {len(content['functions'])} functions"
+        else:
+            return "General purpose module"
+
     def format_summary_markdown(self, summary: Dict[str, Any]) -> str:
-        """Format summary as Markdown"""
+        """Format comprehensive summary as detailed Markdown optimized for LLM context"""
         md = []
-        md.append("# Codebase Summary\n")
         
+        # Header with metadata
+        md.append("# Comprehensive Codebase Documentation")
+        md.append(f"*Generated on {summary['overview']['analysis_date']} with {summary['overview']['tool_version']}*\n")
+        
+        # Executive Summary
         overview = summary["overview"]
-        md.append("## Overview\n")
-        md.append(f"- **Total Files**: {overview['total_files']}")
-        md.append(f"- **Total Functions**: {overview['total_functions']}")
-        md.append(f"- **Total Classes**: {overview['total_classes']}")
-        md.append(f"- **Has Tests**: {'Yes' if overview['has_tests'] else 'No'}")
-        md.append(f"- **Language**: {overview['main_language']}\n")
+        md.append("## Executive Summary")
+        md.append(f"This codebase contains {overview['total_functions']} functions and {overview['total_classes']} classes across {overview['total_files']} files, written primarily in {overview['main_language']}.")
+        md.append(f"Total lines analyzed: {overview['total_lines_analyzed']:,}")
+        md.append(f"Testing coverage: {'Comprehensive' if overview['has_tests'] else 'Limited'}")
         
-        if summary["feature_map"]:
-            md.append("## Where to Find Features\n")
-            for feature, locations in summary["feature_map"].items():
-                if locations:
+        # Statistics and Quality Metrics
+        if "statistics" in summary:
+            stats = summary["statistics"]
+            md.append("\n## Codebase Statistics")
+            md.append(f"- **Total Entities**: {stats['total_entities']}")
+            md.append(f"- **Public Functions**: {stats['public_functions']}")
+            md.append(f"- **Private Functions**: {stats['private_functions']}")
+            md.append(f"- **Test Functions**: {stats['test_functions']}")
+            md.append(f"- **Documentation Coverage**: {stats['documentation_coverage']:.1%}")
+            md.append(f"- **Average Functions per File**: {stats['avg_functions_per_file']:.1f}")
+            md.append(f"- **Average Classes per File**: {stats['avg_classes_per_file']:.1f}")
+        
+        if "code_quality_metrics" in summary:
+            quality = summary["code_quality_metrics"]
+            md.append("\n### Code Quality Metrics")
+            md.append(f"- **Documentation Coverage**: {quality['documentation_coverage']:.1%}")
+            md.append(f"- **Average Complexity**: {quality['average_complexity']:.1f}")
+            md.append(f"- **Public API Ratio**: {quality['public_api_ratio']:.1%}")
+        
+        # Project Structure
+        if "project_structure" in summary:
+            structure = summary["project_structure"]
+            md.append("\n## Project Structure")
+            md.append("### Directory Organization")
+            for dir_name, info in sorted(structure["directories"].items()):
+                md.append(f"- **`{dir_name}`**: {info['file_count']} files, {info['functions']} functions, {info['classes']} classes")
+            
+            md.append("\n### File Types")
+            for ext, count in sorted(structure["file_types"].items()):
+                md.append(f"- **`{ext}`**: {count} files")
+        
+        # Entry Points
+        if summary.get("entry_points"):
+            md.append("\n## Entry Points")
+            md.append("Key entry points for understanding code execution flow:")
+            for entry in summary["entry_points"]:
+                md.append(f"- **{entry['type'].replace('_', ' ').title()}**: `{entry['name']}` in {entry['location']}")
+        
+        # Architecture Patterns
+        if summary.get("architecture_patterns"):
+            md.append("\n## Architecture Patterns")
+            md.append("Identified design patterns in the codebase:")
+            for pattern in summary["architecture_patterns"]:
+                md.append(f"- **{pattern['pattern']}** (confidence: {pattern['confidence']})")
+        
+        # Feature Map - Where to Find Key Functionality
+        if summary.get("feature_map"):
+            md.append("\n## Feature Map - Where to Find Key Functionality")
+            md.append("This section helps you quickly locate code related to specific features:\n")
+            
+            for feature, items in summary["feature_map"].items():
+                if items:
                     md.append(f"### {feature.replace('_', ' ').title()}")
-                    for loc in locations[:5]:
-                        md.append(f"- {loc}")
-                    if len(locations) > 5:
-                        md.append(f"- ...and {len(locations) - 5} more")
+                    for item in items[:8]:  # Show more items for better context
+                        md.append(f"- **`{item['name']}`** ({item['type']}) - {item['purpose']}")
+                        md.append(f"  - Location: `{item['location']}`")
+                        md.append(f"  - Module: `{item['module']}`")
+                    if len(items) > 8:
+                        md.append(f"- *...and {len(items) - 8} more related items*")
                     md.append("")
         
-        if summary["key_functions"]:
-            md.append("## Key Functions\n")
-            for func in summary["key_functions"]:
-                md.append(f"### `{func['name']}`")
-                md.append(f"- **Module**: {func['module']}")
-                md.append(f"- **Purpose**: {func['purpose']}")
-                md.append(f"- **Location**: {func['location']}\n")
+        # Data Flows
+        if summary.get("data_flows"):
+            md.append("\n## Data Flow Analysis")
+            md.append("Understanding how data moves through the system:")
+            
+            flow_types = {}
+            for flow in summary["data_flows"]:
+                flow_type = flow["type"]
+                if flow_type not in flow_types:
+                    flow_types[flow_type] = []
+                flow_types[flow_type].append(flow)
+            
+            for flow_type, flows in flow_types.items():
+                md.append(f"\n### {flow_type.replace('_', ' ').title()}")
+                for flow in flows[:5]:
+                    md.append(f"- **`{flow['function']}`** at `{flow['location']}` - {flow['purpose']}")
         
-        md.append("## Modules\n")
+        # Detailed Module Documentation
+        md.append("\n## Detailed Module Documentation")
+        md.append("Complete reference for all modules, classes, and functions:\n")
+        
         for module_name, module_info in sorted(summary["modules"].items()):
-            md.append(f"### {module_name}")
-            md.append(f"- **File**: `{module_info['file']}`")
-            md.append(f"- **Purpose**: {module_info['purpose']}")
+            md.append(f"### Module: `{module_name}`")
+            md.append(f"**File Path**: `{module_info['relative_path']}`")
+            md.append(f"**Purpose**: {module_info['purpose']}")
             
-            if module_info['functions']:
-                md.append(f"- **Functions** ({len(module_info['functions'])}):")
-                for func in module_info['functions'][:5]:
-                    md.append(f"  - `{func['name']}` - {func['purpose']}")
-                if len(module_info['functions']) > 5:
-                    md.append(f"  - ...and {len(module_info['functions']) - 5} more")
-                    
+            if module_info.get('module_docstring'):
+                md.append(f"**Module Documentation**:")
+                md.append(f"```")
+                md.append(module_info['module_docstring'])
+                md.append(f"```")
+            
+            md.append(f"**Complexity Score**: {module_info['complexity_score']}")
+            md.append(f"**Exports**: {', '.join(module_info['exports']) if module_info['exports'] else 'None'}")
+            
+            # Dependencies
+            if module_info.get('dependencies') or module_info.get('dependents'):
+                md.append(f"**Dependencies**: {len(module_info.get('dependencies', []))} imports")
+                md.append(f"**Used By**: {len(module_info.get('dependents', []))} modules")
+            
+            # Imports
+            if module_info.get('imports'):
+                md.append(f"\n**Key Imports**:")
+                for imp in module_info['imports'][:10]:  # Show first 10 imports
+                    md.append(f"- `{imp}`")
+                if len(module_info['imports']) > 10:
+                    md.append(f"- *...and {len(module_info['imports']) - 10} more imports*")
+            
+            # Classes
             if module_info['classes']:
-                md.append(f"- **Classes** ({len(module_info['classes'])}):")
+                md.append(f"\n#### Classes ({len(module_info['classes'])})")
                 for cls in module_info['classes']:
-                    md.append(f"  - `{cls['name']}` - {cls['docstring']}")
+                    md.append(f"\n**`{cls['name']}`** (line {cls['line']})")
+                    md.append(f"- **Purpose**: {cls['docstring']}")
+                    
+                    if cls.get('base_classes'):
+                        md.append(f"- **Inherits from**: {', '.join(cls['base_classes'])}")
+                    
+                    if cls.get('is_abstract'):
+                        md.append(f"- **Abstract Class**: Yes")
+                    
+                    if cls['methods']:
+                        md.append(f"- **Methods** ({len(cls['methods'])}):")
+                        for method in cls['methods'][:8]:  # Show first 8 methods
+                            method_type = []
+                            if method.get('is_static'): method_type.append('static')
+                            if method.get('is_class_method'): method_type.append('classmethod')
+                            if method.get('is_property'): method_type.append('property')
+                            if method.get('is_private'): method_type.append('private')
+                            
+                            type_str = f" ({', '.join(method_type)})" if method_type else ""
+                            md.append(f"  - `{method['signature']}`{type_str}")
+                            if method['docstring'] != "No description":
+                                md.append(f"    - {method['docstring']}")
+                        
+                        if len(cls['methods']) > 8:
+                            md.append(f"  - *...and {len(cls['methods']) - 8} more methods*")
             
-            md.append("")
+            # Functions
+            if module_info['functions']:
+                md.append(f"\n#### Functions ({len(module_info['functions'])})")
+                for func in module_info['functions']:
+                    md.append(f"\n**`{func['signature']}`** (line {func['line']})")
+                    md.append(f"- **Purpose**: {func['purpose']}")
+                    md.append(f"- **Complexity**: {func['complexity']}/10")
+                    
+                    if func['docstring'] != "No description":
+                        md.append(f"- **Documentation**: {func['docstring']}")
+                    
+                    if func.get('parameters'):
+                        param_list = [p['name'] for p in func['parameters']]
+                        md.append(f"- **Parameters**: {', '.join(param_list)}")
+                    
+                    if func.get('return_type'):
+                        md.append(f"- **Returns**: {func['return_type']}")
+                    
+                    if func.get('decorators'):
+                        md.append(f"- **Decorators**: {', '.join(func['decorators'])}")
+                    
+                    flags = []
+                    if func.get('is_async'): flags.append('async')
+                    if func.get('is_generator'): flags.append('generator')
+                    if flags:
+                        md.append(f"- **Special**: {', '.join(flags)}")
+            
+            md.append("")  # Spacing between modules
+        
+        # Dependencies Graph
+        if summary.get("dependencies"):
+            md.append("\n## Module Dependencies")
+            md.append("Understanding module interconnections:")
+            
+            for module, deps in summary["dependencies"].items():
+                if deps.get("imports") or deps.get("used_by"):
+                    md.append(f"\n### `{module}`")
+                    if deps.get("imports"):
+                        md.append(f"**Imports**: {len(deps['imports'])} dependencies")
+                    if deps.get("used_by"):
+                        md.append(f"**Used by**: {len(deps['used_by'])} modules")
+                    md.append(f"**Complexity**: {deps.get('complexity', 0)}")
+        
+        # Key Functions Reference
+        if summary.get("key_functions"):
+            md.append("\n## Key Functions Reference")
+            md.append("Most important functions for understanding the codebase:")
+            
+            for func in summary["key_functions"]:
+                md.append(f"\n### `{func['name']}`")
+                md.append(f"- **Module**: `{func['module']}`")
+                md.append(f"- **Location**: `{func['location']}`")
+                md.append(f"- **Purpose**: {func['purpose']}")
+        
+        # Class Hierarchy
+        if summary.get("class_hierarchy"):
+            md.append("\n## Class Hierarchy")
+            md.append("Object-oriented structure and relationships:")
+            
+            for class_name, class_info in summary["class_hierarchy"].items():
+                md.append(f"\n### `{class_name}`")
+                md.append(f"- **Module**: `{class_info['module']}`")
+                md.append(f"- **Location**: `{class_info['location']}`")
+                md.append(f"- **Documentation**: {class_info['docstring']}")
+                
+                if class_info.get('base_classes'):
+                    md.append(f"- **Inherits from**: {', '.join(class_info['base_classes'])}")
+                
+                if class_info.get('methods'):
+                    md.append(f"- **Methods**: {', '.join(class_info['methods'][:10])}")
+                    if len(class_info['methods']) > 10:
+                        md.append(f"  *...and {len(class_info['methods']) - 10} more*")
+                
+                if class_info.get('is_abstract'):
+                    md.append(f"- **Abstract**: Yes")
+        
+        # Footer
+        md.append("\n---")
+        md.append("*This documentation was automatically generated by Autodoc.*")
+        md.append("*For the most up-to-date information, regenerate this document after code changes.*")
         
         return '\n'.join(md)
 
@@ -542,8 +1268,10 @@ def check():
         console.print("ℹ️  No analyzed code found - run 'autodoc analyze' first")
 
 @cli.command(name="generate-summary")
-def generate_summary():
-    """Generate a comprehensive codebase summary"""
+@click.option("--output", "-o", help="Save summary to file (e.g., summary.md)")
+@click.option("--format", "output_format", default="markdown", type=click.Choice(["markdown", "json"]), help="Output format")
+def generate_summary(output, output_format):
+    """Generate a comprehensive codebase summary optimized for LLM context"""
     autodoc = SimpleAutodoc()
     autodoc.load()
     
@@ -551,15 +1279,54 @@ def generate_summary():
         console.print("[red]No analyzed code found. Run 'autodoc analyze' first.[/red]")
         return
     
+    console.print("[yellow]Generating comprehensive codebase documentation...[/yellow]")
     summary = autodoc.generate_summary()
     
     if "error" in summary:
         console.print(f"[red]{summary['error']}[/red]")
         return
     
-    # Format and display summary
-    markdown_summary = autodoc.format_summary_markdown(summary)
-    console.print(Markdown(markdown_summary))
+    # Handle output format
+    if output_format == "json":
+        output_content = json.dumps(summary, indent=2, default=str)
+        if output:
+            if not output.endswith('.json'):
+                output = f"{output}.json"
+    else:  # markdown
+        output_content = autodoc.format_summary_markdown(summary)
+        if output:
+            if not output.endswith('.md'):
+                output = f"{output}.md"
+    
+    # Save to file if output path specified
+    if output:
+        try:
+            with open(output, 'w', encoding='utf-8') as f:
+                f.write(output_content)
+            console.print(f"[green]✅ Comprehensive documentation saved to {output}[/green]")
+            console.print(f"[blue]File size: {len(output_content):,} characters[/blue]")
+            
+            # Show preview of what was generated
+            overview = summary["overview"]
+            console.print(f"\n[bold]Generated Documentation Summary:[/bold]")
+            console.print(f"- {overview['total_functions']} functions across {overview['total_files']} files")
+            console.print(f"- {overview['total_classes']} classes analyzed")
+            console.print(f"- {len(summary.get('feature_map', {}))} feature categories identified")
+            console.print(f"- {len(summary.get('modules', {}))} modules documented")
+            
+        except Exception as e:
+            console.print(f"[red]Error saving file: {e}[/red]")
+            # Fall back to displaying in console
+            if output_format == "markdown":
+                console.print(Markdown(output_content))
+            else:
+                console.print(output_content)
+    else:
+        # Display in console
+        if output_format == "markdown":
+            console.print(Markdown(output_content))
+        else:
+            console.print(output_content)
 
 
 class Autodoc(SimpleAutodoc):
