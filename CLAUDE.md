@@ -19,45 +19,80 @@ You should read these files to get an idea of how the project works and what fil
 ### Development Environment
 
 ```bash
-# Create development environment
-hatch env create
+# Setup development environment with uv
+make setup
 
-# Enter virtual environment shell
-hatch shell
+# Activate virtual environment
+source .venv/bin/activate
+
+# Setup with graph dependencies (optional)
+make setup-graph
 ```
 
 ### Common Tasks
 ```bash
 # Analyze a codebase (with caching)
-hatch run analyze ./path/to/code --save
+uv run python -m autodoc.cli analyze ./path/to/code --save
+# or
+make analyze
 
 # Search analyzed code  
-hatch run search "query"
+uv run python -m autodoc.cli search "query"
+# or
+make search QUERY="your query"
 
 # Check configuration status
-hatch run check
+uv run python -m autodoc.cli check
+# or
+make check
 
 # Run tests
-hatch run test
+uv run pytest tests/
 # or
-pytest tests/
+make test
 
 # Format code
-hatch run fmt
+uv run black . && uv run ruff check . --fix
 # or
-black . && ruff check . --fix
+make format
 
 # Build package
-hatch build
+uv build
+# or
+make build
+```
+
+### Graph Commands (Optional)
+```bash
+# Build code relationship graph
+uv run python -m autodoc.cli build-graph --clear
+# or
+make build-graph
+
+# Create visualizations
+uv run python -m autodoc.cli visualize-graph --all
+# or
+make visualize-graph
+
+# Query graph insights
+uv run python -m autodoc.cli query-graph --all
+# or
+make query-graph
 ```
 
 ### Running Individual Tests
 ```bash
 # Run specific test
-pytest tests/test_autodoc.py::test_ast_analyzer
+uv run pytest tests/test_autodoc.py::test_ast_analyzer
 
 # Run with verbose output
-pytest -v tests/
+uv run pytest -v tests/
+
+# Run core tests only
+make test-core
+
+# Run graph tests only (requires graph dependencies)
+make test-graph
 ```
 
 ## Architecture

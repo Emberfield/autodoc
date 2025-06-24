@@ -1,0 +1,25 @@
+#!/usr/bin/env python3
+"""
+Legacy test file - imports modular tests for backward compatibility
+This file ensures existing test runners continue to work while we transition to modular tests.
+"""
+
+# Import all test classes from modular test files
+from .unit.test_analyzer import TestCodeEntity, TestSimpleASTAnalyzer
+from .unit.test_embedder import TestOpenAIEmbedder
+from .unit.test_autodoc import TestSimpleAutodoc
+from .unit.test_cli import TestCLIIntegration, TestCLICommands
+
+# Re-export for backward compatibility
+__all__ = [
+    "TestCodeEntity",
+    "TestSimpleASTAnalyzer", 
+    "TestOpenAIEmbedder",
+    "TestSimpleAutodoc",
+    "TestCLIIntegration",
+    "TestCLICommands"
+]
+
+# Note: All test fixtures are now in tests/conftest.py
+# Individual test classes are in tests/unit/
+# Integration tests are in tests/integration/
