@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.env
+*.egg-info/
+dist/
+build/
+.coverage
+.pytest_cache/
+.ruff_cache/
+venv/
+.venv/
+autodoc_cache.json
