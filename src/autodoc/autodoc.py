@@ -377,6 +377,49 @@ class SimpleAutodoc:
 
         return distribution
 
+    def _extract_imports(self, file_path: str) -> List[str]:
+        """Extract imports from a file."""
+        try:
+            import ast
+
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+
+            tree = ast.parse(content)
+            imports = []
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        imports.append(f"import {alias.name}")
+                elif isinstance(node, ast.ImportFrom):
+                    module = node.module or ""
+                    for alias in node.names:
+                        imports.append(f"from {module} import {alias.name}")
+
+            return imports
+        except Exception:
+            return []
+
+    def _get_class_methods_detailed(
+        self, class_entity: CodeEntity, file_path: str
+    ) -> List[CodeEntity]:
+        """Get detailed methods belonging to a class"""
+        methods = []
+        class_line = class_entity.line_number
+
+        for entity in self.entities:
+            if (
+                entity.type == "function"
+                and entity.file_path == file_path
+                and entity.line_number > class_line
+            ):
+                methods.append(entity)
+                if len(methods) > 20:  # Limit to prevent excessive data
+                    break
+
+        return methods
+
 
 class Autodoc(SimpleAutodoc):
     """Public API class."""

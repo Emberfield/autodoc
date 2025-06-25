@@ -88,6 +88,16 @@ query-graph: ## Query the code graph for insights
 	@echo "$(YELLOW)Querying code graph...$(NC)"
 	uv run python -m autodoc.cli query-graph --all
 
+# Local graph commands (work without Neo4j)
+local-graph: ## Create local code visualizations (no Neo4j required)
+	@echo "$(YELLOW)Creating local code graphs...$(NC)"
+	uv run python -m autodoc.cli local-graph --all
+	@echo "$(GREEN)✓ Local graphs created$(NC)"
+
+local-stats: ## Show module statistics
+	@echo "$(YELLOW)Generating module statistics...$(NC)"
+	uv run python -m autodoc.cli local-graph --stats
+
 test: ## Run all tests
 	@echo "$(YELLOW)Running all tests...$(NC)"
 	uv run pytest tests/ -v
@@ -95,7 +105,7 @@ test: ## Run all tests
 
 test-core: ## Run core tests (excluding graph tests)
 	@echo "$(YELLOW)Running core tests...$(NC)"
-	uv run pytest tests/test_autodoc.py -v
+	uv run pytest tests/unit/ -v
 	@echo "$(GREEN)✓ Core tests completed$(NC)"
 
 test-graph: ## Run graph tests (requires graph dependencies)
