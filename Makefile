@@ -1,4 +1,4 @@
-# Autodoc Package Management Makefile
+# Autodoc Package Management Makefile (uv-based)
 # Usage: make <target>
 
 # Variables - override these as needed
@@ -22,11 +22,14 @@ NC = \033[0m # No Color
 .PHONY: check-config setup-gcp configure-auth check-published release version info
 
 help: ## Show this help message
-	@echo "$(GREEN)Autodoc Package Management$(NC)"
-	@echo "=========================="
+	@echo "$(GREEN)Autodoc Package Management (uv-powered)$(NC)"
+	@echo "======================================="
 	@echo ""
 	@echo "$(YELLOW)Development Commands:$(NC)"
-	@grep -E '^(setup|analyze|search|test|lint|format|dev-install):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^(setup|analyze|search|dev-install):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
+	@echo ""
+	@echo "$(YELLOW)Testing Commands:$(NC)"
+	@grep -E '^(test|test-unit|test-integration|test-coverage|lint|format):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "$(YELLOW)Build & Publish Commands:$(NC)"
 	@grep -E '^(clean|build|publish|release|quick-publish):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
@@ -37,14 +40,24 @@ help: ## Show this help message
 	@echo "$(YELLOW)Utility Commands:$(NC)"
 	@grep -E '^(version|info):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
-setup: ## Initial development environment setup
-	@echo "$(YELLOW)Setting up development environment...$(NC)"
-	hatch env create
+setup: ## Initial development environment setup with uv
+	@echo "$(YELLOW)Setting up development environment with uv...$(NC)"
+	@if ! command -v uv >/dev/null 2>&1; then \
+		echo "$(RED)Error: uv not found. Install with: curl -LsSf https://astral.sh/uv/install.sh | sh$(NC)"; \
+		exit 1; \
+	fi
+	uv sync --dev
 	@echo "$(GREEN)✓ Development environment ready$(NC)"
+	@echo "$(YELLOW)Activate with: source .venv/bin/activate$(NC)"
+
+setup-graph: ## Setup with graph dependencies
+	@echo "$(YELLOW)Setting up with graph dependencies...$(NC)"
+	uv sync --dev --extra graph
+	@echo "$(GREEN)✓ Development environment with graph features ready$(NC)"
 
 analyze: ## Analyze current directory and save cache
 	@echo "$(YELLOW)Analyzing codebase...$(NC)"
-	hatch run analyze . --save
+	uv run python -m autodoc.cli analyze . --save
 	@echo "$(GREEN)✓ Analysis complete$(NC)"
 
 search: ## Search code (usage: make search QUERY="your query")
@@ -53,22 +66,67 @@ search: ## Search code (usage: make search QUERY="your query")
 		exit 1; \
 	fi
 	@echo "$(YELLOW)Searching for: $(QUERY)$(NC)"
-	hatch run search "$(QUERY)"
+	uv run python -m autodoc.cli search "$(QUERY)"
 
-test: ## Run tests
-	@echo "$(YELLOW)Running tests...$(NC)"
-	hatch run test
+generate-docs: ## Generate comprehensive documentation
+	@echo "$(YELLOW)Generating documentation...$(NC)"
+	uv run python -m autodoc.cli generate-summary --format markdown --output docs.md
+	@echo "$(GREEN)✓ Documentation generated$(NC)"
+
+# Graph commands (require graph dependencies)
+build-graph: ## Build code relationship graph in Neo4j
+	@echo "$(YELLOW)Building code graph...$(NC)"
+	uv run python -m autodoc.cli build-graph --clear
+	@echo "$(GREEN)✓ Graph built$(NC)"
+
+visualize-graph: ## Create graph visualizations
+	@echo "$(YELLOW)Creating graph visualizations...$(NC)"
+	uv run python -m autodoc.cli visualize-graph --all
+	@echo "$(GREEN)✓ Visualizations created$(NC)"
+
+query-graph: ## Query the code graph for insights
+	@echo "$(YELLOW)Querying code graph...$(NC)"
+	uv run python -m autodoc.cli query-graph --all
+
+# Local graph commands (work without Neo4j)
+local-graph: ## Create local code visualizations (no Neo4j required)
+	@echo "$(YELLOW)Creating local code graphs...$(NC)"
+	uv run python -m autodoc.cli local-graph --all
+	@echo "$(GREEN)✓ Local graphs created$(NC)"
+
+local-stats: ## Show module statistics
+	@echo "$(YELLOW)Generating module statistics...$(NC)"
+	uv run python -m autodoc.cli local-graph --stats
+
+test: ## Run all tests
+	@echo "$(YELLOW)Running all tests...$(NC)"
+	uv run pytest tests/ -v
 	@echo "$(GREEN)✓ Tests completed$(NC)"
+
+test-core: ## Run core tests (excluding graph tests)
+	@echo "$(YELLOW)Running core tests...$(NC)"
+	uv run pytest tests/unit/ -v
+	@echo "$(GREEN)✓ Core tests completed$(NC)"
+
+test-graph: ## Run graph tests (requires graph dependencies)
+	@echo "$(YELLOW)Running graph tests...$(NC)"
+	uv run pytest tests/test_graph.py -v
+	@echo "$(GREEN)✓ Graph tests completed$(NC)"
+
+test-coverage: ## Run tests with coverage report
+	@echo "$(YELLOW)Running tests with coverage...$(NC)"
+	uv run pytest --cov=src/autodoc --cov-report=html --cov-report=term tests/
+	@echo "$(GREEN)✓ Coverage report generated$(NC)"
 
 lint: ## Run code linting
 	@echo "$(YELLOW)Running linter...$(NC)"
-	hatch run ruff check . || (echo "$(RED)Linting failed$(NC)" && exit 1)
+	uv run ruff check . || (echo "$(RED)Linting failed$(NC)" && exit 1)
 	@echo "$(GREEN)✓ Linting passed$(NC)"
 
 format: ## Format code
 	@echo "$(YELLOW)Formatting code...$(NC)"
-	hatch run black .
-	hatch run ruff check . --fix
+	uv run black .
+	uv run ruff check . --fix
 	@echo "$(GREEN)✓ Code formatted$(NC)"
 
 clean: ## Clean build artifacts
@@ -80,13 +138,13 @@ clean: ## Clean build artifacts
 
 build: clean test ## Build the package
 	@echo "$(YELLOW)Building package...$(NC)"
-	hatch build
+	uv build
 	@echo "$(GREEN)✓ Package built successfully$(NC)"
 	@ls -la $(DIST_DIR)/
 
 dev-install: ## Install package in development mode
 	@echo "$(YELLOW)Installing package in development mode...$(NC)"
-	pip install -e .
+	uv pip install -e .
 	@echo "$(GREEN)✓ Development installation complete$(NC)"
 
 # GCP Artifact Registry Commands
@@ -121,7 +179,7 @@ setup-gcp: check-config ## Setup GCP Artifact Registry repository
 
 configure-auth: check-config ## Configure authentication for Artifact Registry
 	@echo "$(YELLOW)Configuring authentication...$(NC)"
-	pip install --upgrade keyring keyrings.google-artifactregistry-auth twine
+	uv add --dev keyring keyrings.google-artifactregistry-auth twine
 	gcloud auth configure-docker $(REGION)-docker.pkg.dev
 	@echo "$(GREEN)✓ Authentication configured$(NC)"
 	@echo ""
@@ -130,7 +188,7 @@ configure-auth: check-config ## Configure authentication for Artifact Registry
 publish: check-config build ## Publish package to GCP Artifact Registry
 	@echo "$(YELLOW)Publishing to GCP Artifact Registry...$(NC)"
 	@echo "Repository URL: $(REGISTRY_URL)/simple/"
-	python -m twine upload \
+	uv run python -m twine upload \
 		--repository-url $(REGISTRY_URL)/simple/ \
 		--username _json_key_base64 \
 		$(DIST_DIR)/*
@@ -144,7 +202,7 @@ check-published: check-config ## Check published packages in Artifact Registry
 
 release: ## Create a new release (interactive version bump)
 	@echo "$(YELLOW)Creating new release...$(NC)"
-	@echo "Current version: $$(hatch version)"
+	@echo "Current version: $$(uv run python -c 'from src.autodoc.__about__ import __version__; print(__version__)')"
 	@echo ""
 	@echo "Select version bump:"
 	@echo "1) patch (x.y.z -> x.y.z+1)"
@@ -152,31 +210,40 @@ release: ## Create a new release (interactive version bump)
 	@echo "3) major (x.y.z -> x+1.0.0)"
 	@read -p "Enter choice (1-3): " choice; \
 	case $$choice in \
-		1) hatch version patch ;; \
-		2) hatch version minor ;; \
-		3) hatch version major ;; \
+		1) python scripts/bump_version.py patch ;; \
+		2) python scripts/bump_version.py minor ;; \
+		3) python scripts/bump_version.py major ;; \
 		*) echo "$(RED)Invalid choice$(NC)"; exit 1 ;; \
 	esac
-	@echo "$(GREEN)Version updated to: $$(hatch version)$(NC)"
+	@echo "$(GREEN)Version updated$(NC)"
 	@echo ""
 	@echo "$(YELLOW)Next steps:$(NC)"
-	@echo "1. Commit changes: git add . && git commit -m 'bump version to $$(hatch version)'"
-	@echo "2. Create tag: git tag v$$(hatch version)"
+	@echo "1. Commit changes: git add . && git commit -m 'bump version'"
+	@echo "2. Create tag: git tag v$$(uv run python -c 'from src.autodoc.__about__ import __version__; print(__version__)')"
 	@echo "3. Push: git push && git push --tags"
 	@echo "4. Publish: make publish"
 
 version: ## Show current version
-	@echo "Current version: $$(hatch version)"
+	@uv run python -c "from src.autodoc.__about__ import __version__; print(f'Current version: {__version__}')"
 
 info: ## Show project information
 	@echo "$(GREEN)Autodoc Package Information$(NC)"
 	@echo "=========================="
 	@echo "Package: $(PACKAGE_NAME)"
-	@echo "Version: $$(hatch version 2>/dev/null || echo 'Unknown')"
+	@echo "Version: $$(uv run python -c 'from src.autodoc.__about__ import __version__; print(__version__)' 2>/dev/null || echo 'Unknown')"
 	@echo "Project: $(PROJECT_ID)"
 	@echo "Region: $(REGION)"
 	@echo "Repository: $(REPOSITORY)"
 	@echo "Registry URL: $(REGISTRY_URL)"
+	@echo ""
+	@echo "$(YELLOW)Dependencies:$(NC)"
+	@echo "uv: $$(uv --version 2>/dev/null || echo 'Not installed')"
+	@echo "Python: $$(python --version 2>/dev/null || echo 'Not found')"
+
+check: ## Check environment and dependencies
+	@echo "$(YELLOW)Checking environment...$(NC)"
+	uv run python -m autodoc.cli check
+	@echo "$(GREEN)✓ Environment check complete$(NC)"
 
 # Convenience commands
 quick-publish: format lint test build publish ## Quick publish workflow (format, lint, test, build, publish)
@@ -184,3 +251,10 @@ quick-publish: format lint test build publish ## Quick publish workflow (format,
 
 full-setup: setup setup-gcp configure-auth ## Complete setup for new development environment
 	@echo "$(GREEN)✓ Full setup complete - ready for development!$(NC)"
+
+# Development workflow commands
+dev: setup analyze ## Quick development setup
+	@echo "$(GREEN)✓ Development environment ready. Run 'source .venv/bin/activate' to activate.$(NC)"
+
+dev-graph: setup-graph analyze build-graph ## Development setup with graph features
+	@echo "$(GREEN)✓ Development environment with graph features ready!$(NC)"

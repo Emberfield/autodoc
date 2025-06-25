@@ -22,6 +22,14 @@ try:
 except ImportError:
     GRAPH_AVAILABLE = False
 
+# Local graph visualization (works without Neo4j)
+try:
+    from .local_graph import LocalCodeGraph  # noqa: F401
+
+    LOCAL_GRAPH_AVAILABLE = True
+except ImportError:
+    LOCAL_GRAPH_AVAILABLE = False
+
 console = Console()
 
 
@@ -375,6 +383,73 @@ def generate_summary(output, output_format):
             console.print(Markdown(output_content))
         else:
             console.print(output_content)
+
+
+@cli.command(name="local-graph")
+@click.option("--files", is_flag=True, help="Create file dependency graph")
+@click.option("--entities", is_flag=True, help="Create entity network graph")
+@click.option("--stats", is_flag=True, help="Show module statistics")
+@click.option("--all", "create_all", is_flag=True, help="Create all visualizations")
+def local_graph(files, entities, stats, create_all):
+    """Create code visualizations without Neo4j (uses local analysis)"""
+    if not LOCAL_GRAPH_AVAILABLE:
+        console.print("[red]Local graph functionality not available.[/red]")
+        console.print("This should not happen - please check the installation.")
+        return
+
+    # Default behavior
+    if not (files or entities or stats or create_all):
+        create_all = True
+
+    try:
+        console.print("[yellow]Creating local code graphs...[/yellow]")
+
+        from .local_graph import LocalCodeGraph
+
+        graph = LocalCodeGraph()
+
+        if not graph.entities:
+            console.print("[red]No analyzed code found. Run 'autodoc analyze' first.[/red]")
+            return
+
+        created_files = []
+
+        if create_all or files:
+            try:
+                file1 = graph.create_file_dependency_graph()
+                if file1:
+                    created_files.append(file1)
+            except Exception as e:
+                console.print(f"[yellow]Could not create file graph: {e}[/yellow]")
+
+        if create_all or entities:
+            try:
+                file2 = graph.create_entity_network()
+                if file2:
+                    created_files.append(file2)
+            except Exception as e:
+                console.print(f"[yellow]Could not create entity graph: {e}[/yellow]")
+
+        if create_all or stats:
+            console.print("")
+            graph.create_module_stats()  # Creates module_stats.html
+
+        if created_files:
+            console.print(f"\n[green]✅ Created {len(created_files)} visualization files:[/green]")
+            for file in created_files:
+                console.print(f"  📄 {file}")
+            console.print(
+                "\n[blue]💡 Open these HTML files in your browser to view interactive graphs![/blue]"
+            )
+
+        if not GRAPH_AVAILABLE:
+            console.print(
+                "\n[yellow]💡 For advanced graph features with Neo4j, install graph dependencies:[/yellow]"
+            )
+            console.print("   make setup-graph")
+
+    except Exception as e:
+        console.print(f"[red]Error creating local graphs: {e}[/red]")
 
 
 def main():
