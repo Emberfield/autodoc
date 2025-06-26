@@ -12,6 +12,7 @@ Autodoc is an AI-powered code intelligence tool that analyzes Python and TypeScr
 - 🐍 **Python & TypeScript Support** - Full AST analysis for both languages
 - 📊 **Comprehensive Analysis** - Extract and analyze functions, classes, and their relationships
 - 🤖 **AI-Powered** - Optional OpenAI embeddings for enhanced search capabilities
+- 🧠 **LLM Code Enrichment** - Generate detailed descriptions using OpenAI, Anthropic/Claude, or Ollama
 - 📝 **Rich Documentation** - Generate detailed codebase documentation in Markdown or JSON
 - 🚀 **Fast & Efficient** - Caches analysis results for quick repeated searches
 - 🌐 **API Server** - REST API for integration with other tools
@@ -42,6 +43,11 @@ autodoc analyze ./src          # Analyze your codebase
 autodoc generate              # Create AUTODOC.md documentation
 autodoc vector                # Generate embeddings for search  
 autodoc search "auth logic"   # Search with natural language
+
+# LLM Enrichment (NEW!)
+autodoc init                  # Create .autodoc.yml config
+autodoc enrich --limit 50     # Enrich code with AI descriptions
+autodoc generate              # Now includes enriched content!
 
 # Additional commands
 autodoc check                 # Check setup and configuration

@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2024-01-26
+
+### Added
+- 🤖 **LLM-Powered Code Enrichment** - Revolutionary feature for AI-enhanced documentation
+  - Support for OpenAI, Anthropic/Claude, and Ollama
+  - Generates detailed descriptions of code functionality
+  - Identifies key features, complexity, and design patterns
+  - Creates usage examples automatically
+  - Caches results for efficient processing
+
+- 🔧 **Configuration System** - Flexible settings management
+  - New `.autodoc.yml` configuration file
+  - `autodoc init` command to create config
+  - Support for multiple LLM providers
+  - Customizable enrichment settings
+
+- 📝 **Enhanced Build Documentation** - Complete build system information
+  - Comprehensive Makefile parser
+  - Extracts all targets with descriptions
+  - Categorizes commands (setup, build, test, lint, etc.)
+  - Shows command parameters and usage
+
+- 🎯 **New CLI Commands**
+  - `autodoc init` - Initialize configuration
+  - `autodoc enrich` - Enrich code with LLM analysis
+  - Made `--detailed` the default for `autodoc generate`
+
+### Improved
+- 📊 **Better Documentation Quality**
+  - Enriched descriptions in generated docs
+  - Enhanced embeddings using enriched content
+  - More meaningful semantic search results
+  - Detailed build/test/publish commands
+
+- 🐛 **GitHub Workflow Fix**
+  - Fixed Claude Code action configuration
+  - Added required OIDC token permissions
+
 ## [0.2.1] - 2024-01-26
 
 ### Fixed
