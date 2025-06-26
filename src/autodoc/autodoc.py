@@ -68,11 +68,32 @@ class SimpleAutodoc:
 
         if self.embedder and all_entities:
             console.print("[blue]Generating embeddings...[/blue]")
+            
+            # Load enrichment cache if available
+            enrichment_cache = None
+            try:
+                from .enrichment import EnrichmentCache
+                enrichment_cache = EnrichmentCache()
+            except:
+                pass
+            
             texts = []
             for entity in all_entities:
                 text = f"{entity.type} {entity.name}"
-                if entity.docstring:
+                
+                # Use enriched description if available
+                if enrichment_cache:
+                    cache_key = f"{entity.file_path}:{entity.name}:{entity.line_number}"
+                    enrichment = enrichment_cache.get_enrichment(cache_key)
+                    if enrichment and enrichment.get("description"):
+                        text += f": {enrichment['description']}"
+                        if enrichment.get("key_features"):
+                            text += " Features: " + ", ".join(enrichment['key_features'])
+                    elif entity.docstring:
+                        text += f": {entity.docstring}"
+                elif entity.docstring:
                     text += f": {entity.docstring}"
+                    
                 texts.append(text)
 
             embeddings = await self.embedder.embed_batch(texts)
@@ -231,10 +252,16 @@ class SimpleAutodoc:
         except FileNotFoundError:
             console.print(f"[yellow]No cache file found at {path}[/yellow]")
 
-    def generate_summary(self) -> Dict[str, Any]:
+    def generate_summary(self, use_enrichment: bool = True) -> Dict[str, Any]:
         """Generate a comprehensive codebase summary optimized for LLM context."""
         if not self.entities:
             return {"error": "No analyzed code found. Run 'analyze' first."}
+
+        # Load enrichment cache if available
+        enrichment_cache = None
+        if use_enrichment:
+            from .enrichment import EnrichmentCache
+            enrichment_cache = EnrichmentCache()
 
         # Initialize analyzers
         code_analyzer = CodeAnalyzer(self.entities)
@@ -258,18 +285,29 @@ class SimpleAutodoc:
                 }
 
             if entity.type == "function":
+                # Get enrichment if available
+                enriched_data = {}
+                if enrichment_cache:
+                    cache_key = f"{entity.file_path}:{entity.name}:{entity.line_number}"
+                    enrichment = enrichment_cache.get_enrichment(cache_key)
+                    if enrichment:
+                        enriched_data = enrichment
+                
                 func_info = {
                     "name": entity.name,
                     "line": entity.line_number,
                     "signature": code_analyzer.extract_signature(entity),
-                    "docstring": entity.docstring or "No description",
-                    "purpose": code_analyzer.extract_purpose(entity),
+                    "docstring": enriched_data.get("description") or entity.docstring or "No description",
+                    "purpose": enriched_data.get("purpose") or code_analyzer.extract_purpose(entity),
                     "complexity": code_analyzer.estimate_complexity(entity),
                     "calls": [],  # Would need more sophisticated analysis
                     "decorators": code_analyzer.extract_decorators(entity),
                     "parameters": code_analyzer.extract_parameters(entity),
                     "return_type": code_analyzer.extract_return_type(entity),
                     "is_async": code_analyzer.is_async_function(entity),
+                    "key_features": enriched_data.get("key_features", []),
+                    "complexity_notes": enriched_data.get("complexity_notes"),
+                    "usage_examples": enriched_data.get("usage_examples", []),
                     "is_generator": code_analyzer.is_generator(entity),
                 }
                 files[file_path]["functions"].append(func_info)
@@ -279,10 +317,21 @@ class SimpleAutodoc:
                     files[file_path]["exports"].append(entity.name)
 
             elif entity.type == "class":
+                # Get enrichment if available
+                enriched_data = {}
+                if enrichment_cache:
+                    cache_key = f"{entity.file_path}:{entity.name}:{entity.line_number}"
+                    enrichment = enrichment_cache.get_enrichment(cache_key)
+                    if enrichment:
+                        enriched_data = enrichment
+                
                 class_info = {
                     "name": entity.name,
                     "line": entity.line_number,
-                    "docstring": entity.docstring or "No description",
+                    "docstring": enriched_data.get("description") or entity.docstring or "No description",
+                    "purpose": enriched_data.get("purpose", ""),
+                    "key_features": enriched_data.get("key_features", []),
+                    "design_patterns": enriched_data.get("design_patterns", []),
                     "base_classes": code_analyzer.extract_base_classes(entity),
                     "methods": [
                         {

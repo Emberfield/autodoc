@@ -13,6 +13,8 @@ from rich.markdown import Markdown
 from rich.table import Table
 
 from .autodoc import SimpleAutodoc
+from .config import AutodocConfig
+from .enrichment import LLMEnricher, EnrichmentCache
 
 # Optional graph imports - only available if dependencies are installed
 try:
@@ -170,6 +172,151 @@ def check():
         console.print("✅ Analyzed code cache found")
     else:
         console.print("ℹ️  No analyzed code found - run 'autodoc analyze' first")
+
+
+@cli.command(name="init")
+def init_config():
+    """Initialize autodoc configuration file"""
+    config_path = Path.cwd() / ".autodoc.yml"
+    
+    if config_path.exists():
+        console.print("[yellow]Configuration file already exists at .autodoc.yml[/yellow]")
+        if not click.confirm("Overwrite existing configuration?"):
+            return
+    
+    # Create default config
+    config = AutodocConfig()
+    config.save(config_path)
+    
+    console.print("[green]✅ Created .autodoc.yml configuration file[/green]")
+    console.print("\n[blue]Configuration sections:[/blue]")
+    console.print("  • llm: LLM provider settings (OpenAI, Anthropic, Ollama)")
+    console.print("  • enrichment: Code enrichment settings")
+    console.print("  • embeddings: Embedding generation settings")
+    console.print("  • graph: Graph database settings")
+    console.print("  • analysis: Code analysis settings")
+    console.print("  • output: Documentation output settings")
+    console.print("\n[yellow]Remember to set your API keys via environment variables:[/yellow]")
+    console.print("  • OpenAI: export OPENAI_API_KEY='your-key'")
+    console.print("  • Anthropic: export ANTHROPIC_API_KEY='your-key'")
+
+
+@cli.command(name="enrich")
+@click.option("--limit", "-l", default=None, type=int, help="Limit number of entities to enrich")
+@click.option("--filter", "-f", help="Filter entities by name pattern")
+@click.option("--type", "-t", type=click.Choice(["function", "class", "all"]), default="all", help="Entity type to enrich")
+@click.option("--force", is_flag=True, help="Force re-enrichment of cached entities")
+@click.option("--provider", help="Override LLM provider (openai, anthropic, ollama)")
+@click.option("--model", help="Override LLM model")
+def enrich(limit, filter, type, force, provider, model):
+    """Enrich code entities with LLM-generated descriptions"""
+    # Run async function
+    asyncio.run(_enrich_async(limit, filter, type, force, provider, model))
+
+
+async def _enrich_async(limit, filter, type, force, provider, model):
+    """Async implementation of enrich command"""
+    # Load config
+    config = AutodocConfig.load()
+    
+    # Override provider/model if specified
+    if provider:
+        config.llm.provider = provider
+    if model:
+        config.llm.model = model
+    
+    # Check API key
+    api_key = config.llm.get_api_key()
+    if not api_key and config.llm.provider != "ollama":
+        console.print(f"[red]No API key found for {config.llm.provider}[/red]")
+        console.print("[yellow]Set via environment variable or .autodoc.yml[/yellow]")
+        return
+    
+    # Load entities
+    autodoc = SimpleAutodoc()
+    autodoc.load()
+    
+    if not autodoc.entities:
+        console.print("[red]No analyzed code found. Run 'autodoc analyze' first.[/red]")
+        return
+    
+    # Filter entities
+    entities = autodoc.entities
+    if type != "all":
+        entities = [e for e in entities if e.type == type]
+    if filter:
+        import re
+        pattern = re.compile(filter, re.IGNORECASE)
+        entities = [e for e in entities if pattern.search(e.name)]
+    if limit:
+        entities = entities[:limit]
+    
+    console.print(f"[yellow]Enriching {len(entities)} entities with {config.llm.provider}/{config.llm.model}...[/yellow]")
+    
+    # Load cache
+    cache = EnrichmentCache()
+    
+    # Filter out already cached entities unless force is set
+    if not force:
+        uncached = []
+        for entity in entities:
+            cache_key = f"{entity.file_path}:{entity.name}:{entity.line_number}"
+            if not cache.get_enrichment(cache_key):
+                uncached.append(entity)
+        
+        if len(uncached) < len(entities):
+            console.print(f"[blue]Skipping {len(entities) - len(uncached)} cached entities (use --force to re-enrich)[/blue]")
+        entities = uncached
+    
+    if not entities:
+        console.print("[green]All entities are already enriched![/green]")
+        return
+    
+    # Enrich entities
+    enriched_count = 0
+    failed_count = 0
+    
+    async with LLMEnricher(config) as enricher:
+        with console.status("[yellow]Enriching entities...[/yellow]") as status:
+            # Process in smaller batches for better progress feedback
+            batch_size = min(config.enrichment.batch_size, 5)
+            
+            for i in range(0, len(entities), batch_size):
+                batch = entities[i:i + batch_size]
+                batch_names = [e.name for e in batch]
+                status.update(f"[yellow]Enriching: {', '.join(batch_names)}...[/yellow]")
+                
+                try:
+                    enriched_batch = await enricher.enrich_entities(batch)
+                    
+                    # Cache results
+                    for enriched in enriched_batch:
+                        cache_key = f"{enriched.entity.file_path}:{enriched.entity.name}:{enriched.entity.line_number}"
+                        cache.set_enrichment(cache_key, {
+                            "description": enriched.description,
+                            "purpose": enriched.purpose,
+                            "key_features": enriched.key_features,
+                            "complexity_notes": enriched.complexity_notes,
+                            "usage_examples": enriched.usage_examples,
+                            "design_patterns": enriched.design_patterns,
+                            "dependencies": enriched.dependencies
+                        })
+                        enriched_count += 1
+                        
+                except Exception as e:
+                    console.print(f"[red]Error enriching batch: {e}[/red]")
+                    failed_count += len(batch)
+    
+    # Save cache
+    cache.save_cache()
+    
+    # Summary
+    console.print(f"\n[green]✅ Enriched {enriched_count} entities[/green]")
+    if failed_count > 0:
+        console.print(f"[red]❌ Failed to enrich {failed_count} entities[/red]")
+    
+    console.print(f"\n[blue]Enrichment cached in autodoc_enrichment_cache.json[/blue]")
+    console.print("[yellow]Run 'autodoc generate' to create documentation with enriched descriptions[/yellow]")
 
 
 @cli.command(name="graph")

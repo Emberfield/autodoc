@@ -1,0 +1,58 @@
+# Autodoc Configuration File
+# Copy this to .autodoc.yml and customize as needed
+
+# LLM Configuration
+llm:
+  provider: openai  # Options: openai, anthropic, ollama
+  model: gpt-4o-mini  # Model to use for enrichment
+  temperature: 0.3  # Lower = more deterministic
+  max_tokens: 500  # Max tokens per enrichment response
+  # api_key: sk-...  # Can also use environment variable
+  # base_url: http://localhost:11434  # For custom endpoints (e.g., Ollama)
+
+# Code Enrichment Settings
+enrichment:
+  enabled: true  # Enable LLM-powered enrichment
+  batch_size: 10  # Number of entities to process at once
+  cache_enrichments: true  # Cache enrichment results
+  include_examples: true  # Generate usage examples
+  analyze_complexity: true  # Analyze code complexity
+  detect_patterns: true  # Detect design patterns
+  languages:  # Languages to enrich
+    - python
+    - typescript
+
+# Embedding Settings
+embeddings:
+  provider: openai
+  model: text-embedding-3-small
+  dimensions: 1536
+  batch_size: 100
+
+# Graph Database Settings
+graph:
+  neo4j_uri: bolt://localhost:7687
+  neo4j_username: neo4j
+  neo4j_password: password
+  enrich_nodes: true  # Add enriched descriptions to graph nodes
+
+# Code Analysis Settings
+analysis:
+  ignore_patterns:
+    - __pycache__
+    - "*.pyc"
+    - .git
+    - node_modules
+    - test_install
+    - .venv
+    - venv
+  max_file_size: 1048576  # 1MB
+  follow_imports: true
+  analyze_dependencies: true
+
+# Documentation Output Settings
+output:
+  format: markdown
+  include_code_snippets: true
+  max_description_length: 500
+  group_by_feature: true
