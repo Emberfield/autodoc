@@ -17,8 +17,9 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      id-token: write  # Required for OIDC token
     steps:
       - uses: actions/checkout@v4
       - uses: anthropics/claude-code-action@beta
         with:
-          api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
