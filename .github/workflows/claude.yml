@@ -19,6 +19,6 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
-      - uses: anthropics/claude-code-action@v1
+      - uses: anthropics/claude-code-action@beta
         with:
           api_key: ${{ secrets.ANTHROPIC_API_KEY }}
