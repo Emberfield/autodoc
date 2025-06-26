@@ -97,26 +97,52 @@ class ProjectAnalyzer:
             build_info["build_tools"].append("poetry")
             build_info["package_managers"].append("poetry")
 
-        # Check for common build commands in scripts or documentation
+        # Parse Makefile for detailed commands
+        makefile_path = cwd / "Makefile"
+        if makefile_path.exists():
+            try:
+                from .makefile_parser import MakefileParser
+                parser = MakefileParser(makefile_path)
+                makefile_targets = parser.parse()
+                categorized = parser.get_categorized_targets()
+                
+                # Store all Makefile commands with descriptions
+                build_info["makefile_targets"] = makefile_targets
+                build_info["makefile_categories"] = categorized
+                
+                # Add categorized commands to build_commands
+                for category, targets in categorized.items():
+                    for target in targets:
+                        cmd_entry = {
+                            "command": target["command"],
+                            "description": target["description"],
+                            "category": category
+                        }
+                        build_info["build_commands"].append(cmd_entry)
+            except Exception as e:
+                print(f"Error parsing Makefile: {e}")
+                # Fall back to simple string search
+                build_info["build_commands"].append("make build")
+        
+        # Also check for common build commands in documentation
         common_commands = [
             "python -m build",
             "pip install -e .",
             "hatch build",
             "poetry build",
-            "make build",
             "python setup.py build",
             "python setup.py sdist bdist_wheel",
         ]
 
-        # Look for commands in common files
-        command_files = ["Makefile", "README.md", "README.rst", "DEVELOPMENT.md", "CONTRIBUTING.md"]
-        for cmd_file in command_files:
-            if (cwd / cmd_file).exists():
+        # Look for commands in documentation files
+        doc_files = ["README.md", "README.rst", "DEVELOPMENT.md", "CONTRIBUTING.md"]
+        for doc_file in doc_files:
+            if (cwd / doc_file).exists():
                 try:
-                    with open(cwd / cmd_file, "r", encoding="utf-8", errors="ignore") as f:
-                        content = f.read().lower()
+                    with open(cwd / doc_file, "r", encoding="utf-8", errors="ignore") as f:
+                        content = f.read()
                         for cmd in common_commands:
-                            if cmd.lower() in content:
+                            if cmd in content and cmd not in [bc["command"] if isinstance(bc, dict) else bc for bc in build_info["build_commands"]]:
                                 build_info["build_commands"].append(cmd)
                 except Exception:
                     pass

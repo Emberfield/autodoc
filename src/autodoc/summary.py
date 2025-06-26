@@ -530,7 +530,27 @@ class MarkdownFormatter:
             if build.get("build_commands"):
                 md.append("\n**Build Commands**:")
                 for cmd in build["build_commands"]:
-                    md.append(f"- `{cmd}`")
+                    if isinstance(cmd, dict):
+                        # New detailed format
+                        if cmd.get("description"):
+                            md.append(f"- `{cmd['command']}` - {cmd['description']}")
+                        else:
+                            md.append(f"- `{cmd['command']}` ({cmd.get('category', 'general')})")
+                    else:
+                        # Legacy string format
+                        md.append(f"- `{cmd}`")
+                        
+            # Add Makefile targets if available
+            if build.get("makefile_categories"):
+                md.append("\n**Makefile Targets by Category**:")
+                for category, targets in build["makefile_categories"].items():
+                    if targets:
+                        md.append(f"\n*{category.title()}:*")
+                        for target in targets:
+                            if target.get("description"):
+                                md.append(f"- `{target['command']}` - {target['description']}")
+                            else:
+                                md.append(f"- `{target['command']}`")
 
             if build.get("scripts"):
                 md.append("\n**Project Scripts**:")

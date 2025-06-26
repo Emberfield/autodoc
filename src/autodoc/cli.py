@@ -484,7 +484,7 @@ def query_graph(entry_points, test_coverage, patterns, complexity, deps, show_al
     type=click.Choice(["markdown", "json"]),
     help="Output format (default: markdown)",
 )
-@click.option("--detailed", is_flag=True, help="Generate detailed documentation with code examples")
+@click.option("--detailed/--summary", default=True, help="Generate detailed documentation (default) or summary only")
 def generate(output, output_format, detailed):
     """Generate comprehensive codebase documentation"""
     autodoc = SimpleAutodoc()
