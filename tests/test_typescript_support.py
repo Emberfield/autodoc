@@ -8,8 +8,8 @@ import asyncio
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from src.autodoc.autodoc import SimpleAutodoc, TYPESCRIPT_AVAILABLE
-from src.autodoc.analyzer import SimpleASTAnalyzer, CodeEntity
+from autodoc.autodoc import SimpleAutodoc, TYPESCRIPT_AVAILABLE
+from autodoc.analyzer import SimpleASTAnalyzer, CodeEntity
 
 
 class TestTypeScriptSupport:
@@ -123,6 +123,7 @@ export function testFunction(): string {
             if test_dir.exists() and not list(test_dir.iterdir()):
                 test_dir.rmdir()
 
+    @pytest.mark.asyncio
     @pytest.mark.skipif(not TYPESCRIPT_AVAILABLE, reason="TypeScript analyzer not available")
     async def test_typescript_only_analysis(self, autodoc, test_ts_project_path):
         """Test analysis of TypeScript-only project."""
