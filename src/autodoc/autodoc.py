@@ -56,7 +56,7 @@ class SimpleAutodoc:
         
         # Analyze Python files
         python_entities = self.analyzer.analyze_directory(path)
-        all_entities = python_entities
+        all_entities = python_entities.copy()  # Create a copy to avoid modifying the original list
         
         # Analyze TypeScript files if analyzer is available
         typescript_entities = []

@@ -86,7 +86,8 @@ class TypeScriptAnalyzer:
     def _initialize_parser(self):
         """Initialize tree-sitter parser for TypeScript."""
         if not TREE_SITTER_AVAILABLE:
-            console.print("[yellow]Warning: tree-sitter-languages not available. TypeScript parsing disabled.[/yellow]")
+            console.print("[yellow]Warning: tree-sitter-languages not available. Using fallback parser.[/yellow]")
+            self._use_fallback_parser()
             return
         
         try:
@@ -94,9 +95,13 @@ class TypeScriptAnalyzer:
             self.parser = get_parser('typescript')
             console.print("[green]TypeScript parser initialized successfully[/green]")
         except Exception as e:
-            console.print(f"[red]Error initializing TypeScript parser: {e}[/red]")
-            self.parser = None
-            self.language = None
+            console.print(f"[yellow]Warning: TypeScript tree-sitter parser failed ({e}). Using fallback parser.[/yellow]")
+            self._use_fallback_parser()
+    
+    def _use_fallback_parser(self):
+        """Use regex-based fallback parser when tree-sitter is not available."""
+        self.parser = "fallback"
+        self.language = "typescript"
     
     def is_available(self) -> bool:
         """Check if TypeScript parsing is available."""
@@ -113,15 +118,20 @@ class TypeScriptAnalyzer:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
             
-            # Parse the file with tree-sitter
-            tree = self.parser.parse(bytes(content, 'utf8'))
-            root_node = tree.root_node
-            
-            # Extract imports for framework detection
-            imports = self._extract_imports(root_node, content)
-            
-            # Analyze all nodes in the tree
-            entities.extend(self._analyze_node(root_node, content, str(file_path), imports))
+            if self.parser == "fallback":
+                # Use regex-based fallback parser
+                imports = self._extract_imports_fallback(content)
+                entities.extend(self._analyze_content_fallback(content, str(file_path), imports))
+            else:
+                # Parse the file with tree-sitter
+                tree = self.parser.parse(bytes(content, 'utf8'))
+                root_node = tree.root_node
+                
+                # Extract imports for framework detection
+                imports = self._extract_imports(root_node, content)
+                
+                # Analyze all nodes in the tree
+                entities.extend(self._analyze_node(root_node, content, str(file_path), imports))
             
         except Exception as e:
             console.print(f"[red]Error analyzing TypeScript file {file_path}: {e}[/red]")
@@ -709,4 +719,117 @@ class TypeScriptAnalyzer:
         """Extract domain from external API calls."""
         # This would need more sophisticated analysis of the actual code
         # For now, return None - could be enhanced to parse URL literals
+        return None
+    
+    # Fallback parser methods (regex-based)
+    def _extract_imports_fallback(self, content: str) -> List[str]:
+        """Extract import statements using regex."""
+        import_pattern = r'import\s+.*?from\s+[\'"][^\'"]+[\'"]'
+        imports = re.findall(import_pattern, content, re.MULTILINE)
+        return imports
+    
+    def _analyze_content_fallback(self, content: str, file_path: str, imports: List[str]) -> List[TypeScriptEntity]:
+        """Analyze TypeScript content using regex patterns."""
+        entities = []
+        lines = content.split('\n')
+        
+        # Function patterns
+        function_pattern = r'(?:export\s+)?(?:async\s+)?function\s+(\w+)'
+        class_pattern = r'(?:export\s+)?(?:abstract\s+)?class\s+(\w+)'
+        interface_pattern = r'(?:export\s+)?interface\s+(\w+)'
+        type_pattern = r'(?:export\s+)?type\s+(\w+)'
+        method_pattern = r'(\w+)\s*\([^)]*\)\s*:\s*\w+\s*{'
+        
+        for line_num, line in enumerate(lines, 1):
+            line = line.strip()
+            
+            # Skip empty lines and comments
+            if not line or line.startswith('//') or line.startswith('*') or line.startswith('/*'):
+                continue
+            
+            # Extract functions
+            func_match = re.search(function_pattern, line)
+            if func_match:
+                entity = TypeScriptEntity(
+                    type='function',
+                    name=func_match.group(1),
+                    file_path=file_path,
+                    line_number=line_num,
+                    docstring=None,
+                    code=line[:100] + "..." if len(line) > 100 else line,
+                    is_async='async' in line,
+                    is_exported='export' in line
+                )
+                self._enhance_with_api_detection(entity, imports, content)
+                entities.append(entity)
+            
+            # Extract classes
+            class_match = re.search(class_pattern, line)
+            if class_match:
+                entity = TypeScriptEntity(
+                    type='class',
+                    name=class_match.group(1),
+                    file_path=file_path,
+                    line_number=line_num,
+                    docstring=None,
+                    code=f"class {class_match.group(1)}",
+                    is_exported='export' in line,
+                    is_abstract='abstract' in line
+                )
+                self._enhance_with_api_detection(entity, imports, content)
+                entities.append(entity)
+            
+            # Extract interfaces
+            interface_match = re.search(interface_pattern, line)
+            if interface_match:
+                entity = TypeScriptEntity(
+                    type='interface',
+                    name=interface_match.group(1),
+                    file_path=file_path,
+                    line_number=line_num,
+                    docstring=None,
+                    code=f"interface {interface_match.group(1)}",
+                    is_exported='export' in line
+                )
+                self._enhance_with_api_detection(entity, imports, content)
+                entities.append(entity)
+            
+            # Extract type aliases
+            type_match = re.search(type_pattern, line)
+            if type_match:
+                entity = TypeScriptEntity(
+                    type='type',
+                    name=type_match.group(1),
+                    file_path=file_path,
+                    line_number=line_num,
+                    docstring=None,
+                    code=line[:100] + "..." if len(line) > 100 else line,
+                    is_exported='export' in line
+                )
+                entities.append(entity)
+            
+            # Extract methods (simple pattern)
+            method_match = re.search(method_pattern, line)
+            if method_match and not func_match:  # Avoid duplicating functions
+                entity = TypeScriptEntity(
+                    type='method',
+                    name=method_match.group(1),
+                    file_path=file_path,
+                    line_number=line_num,
+                    docstring=None,
+                    code=line[:100] + "..." if len(line) > 100 else line,
+                    is_async='async' in line,
+                    access_modifier=self._extract_access_modifier_fallback(line),
+                    is_static='static' in line
+                )
+                self._enhance_with_api_detection(entity, imports, content)
+                entities.append(entity)
+        
+        return entities
+    
+    def _extract_access_modifier_fallback(self, line: str) -> Optional[str]:
+        """Extract access modifier from line using regex."""
+        for modifier in ['private', 'protected', 'public']:
+            if modifier in line:
+                return modifier
         return None
