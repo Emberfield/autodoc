@@ -247,7 +247,17 @@ class SimpleAutodoc:
         try:
             with open(path, "r") as f:
                 data = json.load(f)
-            self.entities = [CodeEntity(**entity) for entity in data["entities"]]
+            
+            # Filter entity data to only include fields that CodeEntity accepts
+            from inspect import signature
+            valid_fields = set(signature(CodeEntity).parameters.keys())
+            
+            self.entities = []
+            for entity_data in data["entities"]:
+                # Only keep fields that exist in CodeEntity
+                filtered_data = {k: v for k, v in entity_data.items() if k in valid_fields}
+                self.entities.append(CodeEntity(**filtered_data))
+            
             console.print(f"[green]Loaded {len(self.entities)} entities from {path}[/green]")
         except FileNotFoundError:
             console.print(f"[yellow]No cache file found at {path}[/yellow]")
