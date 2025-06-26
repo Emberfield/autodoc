@@ -55,8 +55,42 @@ def analyze(path, save):
         loop.close()
 
     console.print("\n[bold]Analysis Summary:[/bold]")
-    for key, value in summary.items():
-        console.print(f"  {key}: {value}")
+    
+    # Display overall stats
+    console.print(f"  Files analyzed: {summary['files_analyzed']}")
+    console.print(f"  Total entities: {summary['total_entities']}")
+    console.print(f"  Functions: {summary['functions']}")
+    console.print(f"  Classes: {summary['classes']}")
+    
+    if summary.get('methods', 0) > 0:
+        console.print(f"  Methods: {summary['methods']}")
+    if summary.get('interfaces', 0) > 0:
+        console.print(f"  Interfaces: {summary['interfaces']}")
+    if summary.get('types', 0) > 0:
+        console.print(f"  Types: {summary['types']}")
+    
+    console.print(f"  Embeddings: {'enabled' if summary['has_embeddings'] else 'disabled'}")
+    
+    # Display language-specific stats
+    if 'languages' in summary:
+        languages = summary['languages']
+        
+        if languages['python']['entities'] > 0:
+            console.print("\n[bold]Python:[/bold]")
+            console.print(f"  Files: {languages['python']['files']}")
+            console.print(f"  Entities: {languages['python']['entities']}")
+            console.print(f"  Functions: {languages['python']['functions']}")
+            console.print(f"  Classes: {languages['python']['classes']}")
+        
+        if languages['typescript']['entities'] > 0:
+            console.print("\n[bold]TypeScript:[/bold]")
+            console.print(f"  Files: {languages['typescript']['files']}")
+            console.print(f"  Entities: {languages['typescript']['entities']}")
+            console.print(f"  Functions: {languages['typescript']['functions']}")
+            console.print(f"  Classes: {languages['typescript']['classes']}")
+            console.print(f"  Methods: {languages['typescript']['methods']}")
+            console.print(f"  Interfaces: {languages['typescript']['interfaces']}")
+            console.print(f"  Types: {languages['typescript']['types']}")
 
     if save:
         autodoc.save()
