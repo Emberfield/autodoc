@@ -697,7 +697,12 @@ class TypeScriptAnalyzer:
         # Check if it's a wrapper around external services
         name_lower = entity.name.lower()
         if any(service in name_lower for service in ['client', 'adapter']) and any(ext in name_lower for ext in ['external', 'third_party', 'api']):
-            return False
+            # Check for external imports or file paths to confirm external classification
+            if any(pattern in file_path_lower for pattern in ['clients', 'adapters', 'external', 'integrations', 'services/external']):
+                return False
+            import_text = ' '.join(imports).lower()
+            if any(pattern in import_text for pattern in ['sdk', 'external', 'api']):
+                return False
         
         # Check file path for external integration patterns
         file_path_lower = entity.file_path.lower()
