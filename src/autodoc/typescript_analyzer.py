@@ -658,7 +658,7 @@ class TypeScriptAnalyzer:
         """Extract route path from NestJS decorators."""
         for decorator in decorators:
             # Look for route paths in decorators like @Get('/users')
-            match = re.search(r'@(Get|Post|Put|Delete|Patch)\s*\(\s*[\'"`]([^\'"`]+)[\'"`]\s*\)', decorator)
+            match = re.search(r'@(Get|Post|Put|Delete|Patch)\s*\(\s*[\'"`]([^\'"`]+)[\'"`]\)', decorator)
             if match:
                 return match.group(2)
         
