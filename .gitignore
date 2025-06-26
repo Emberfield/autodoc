@@ -10,3 +10,4 @@ build/
 venv/
 .venv/
 autodoc_cache.json
+test_install/
