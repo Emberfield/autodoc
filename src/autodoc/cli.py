@@ -452,6 +452,55 @@ def local_graph(files, entities, stats, create_all):
         console.print(f"[red]Error creating local graphs: {e}[/red]")
 
 
+@cli.command()
+@click.option("--host", default="localhost", help="Host to bind to")
+@click.option("--port", default=8080, type=int, help="Port to bind to")
+@click.option("--load-cache", is_flag=True, help="Load existing cache on startup")
+def serve(host, port, load_cache):
+    """Start the API server for node connections and graph queries"""
+    try:
+        from .api_server import APIServer
+
+        console.print(f"[blue]Starting Autodoc API server on {host}:{port}[/blue]")
+
+        # Create server instance
+        server = APIServer(host=host, port=port)
+
+        # Load existing cache if requested
+        if load_cache:
+            console.print("[yellow]Loading existing cache...[/yellow]")
+            if server.autodoc:
+                server.autodoc.load()
+                console.print(f"[green]Loaded {len(server.autodoc.entities)} entities[/green]")
+
+        console.print("\n[bold green]🚀 Server starting...[/bold green]")
+        console.print(f"[blue]Health check: http://{host}:{port}/health[/blue]")
+        console.print(f"[blue]API docs: Available endpoints at /api/*[/blue]")
+        console.print("\n[yellow]Available endpoints:[/yellow]")
+        console.print("  • GET /health - Health check")
+        console.print("  • POST /api/nodes/analyze - Analyze codebase")
+        console.print("  • GET /api/nodes - List nodes/entities")
+        console.print("  • POST /api/relationships - Create relationships")
+        console.print("  • GET /api/relationships - List relationships")
+        console.print("  • POST /api/search - Search entities")
+        console.print("  • GET /api/entities/internal - Internal entities")
+        console.print("  • GET /api/entities/external - External entities")
+        console.print("  • GET /api/entities/endpoints - API endpoints")
+        console.print("  • GET /api/graph/stats - Graph statistics")
+        console.print("\n[dim]Press Ctrl+C to stop the server[/dim]")
+
+        # Run the server
+        server.run()
+
+    except ImportError as e:
+        console.print(f"[red]Error: Missing dependencies for API server: {e}[/red]")
+        console.print(
+            "[yellow]Install with: pip install 'aiohttp>=3.9.1' 'aiohttp-cors>=0.7.0'[/yellow]"
+        )
+    except Exception as e:
+        console.print(f"[red]Error starting server: {e}[/red]")
+
+
 def main():
     cli()
 

@@ -95,6 +95,73 @@ class SimpleAutodoc:
 
             return results[:limit]
 
+    async def analyze_directory_async(self, path: Path, save: bool = True) -> Dict[str, Any]:
+        """Async version of analyze_directory."""
+        result = await self.analyze_directory(path)
+        if save:
+            self.save()
+        return result
+
+    async def analyze_file_async(self, file_path: Path, save: bool = True) -> Dict[str, Any]:
+        """Analyze a single file asynchronously."""
+        entities = self.analyzer.analyze_file(file_path)
+
+        if self.embedder and entities:
+            console.print("[blue]Generating embeddings...[/blue]")
+            texts = []
+            for entity in entities:
+                text = f"{entity.type} {entity.name}"
+                if entity.docstring:
+                    text += f": {entity.docstring}"
+                texts.append(text)
+
+            embeddings = await self.embedder.embed_batch(texts)
+            for entity, embedding in zip(entities, embeddings):
+                entity.embedding = embedding
+
+            console.print(f"[green]Generated {len(embeddings)} embeddings[/green]")
+
+        self.entities.extend(entities)
+
+        if save:
+            self.save()
+
+        return {
+            "file_analyzed": str(file_path),
+            "entities_found": len(entities),
+            "functions": len([e for e in entities if e.type == "function"]),
+            "classes": len([e for e in entities if e.type == "class"]),
+            "has_embeddings": self.embedder is not None,
+        }
+
+    async def search_async(self, query: str, limit: int = 10) -> List[tuple]:
+        """Async version of search that returns (entity, score) tuples."""
+        if not self.entities:
+            return []
+
+        if self.embedder and all(e.embedding for e in self.entities):
+            console.print(f"[blue]Searching for: {query}[/blue]")
+            query_embedding = await self.embedder.embed(query)
+
+            results = []
+            for entity in self.entities:
+                similarity = sum(a * b for a, b in zip(query_embedding, entity.embedding))
+                results.append((entity, similarity))
+
+            results.sort(key=lambda x: x[1], reverse=True)
+            return results[:limit]
+        else:
+            query_lower = query.lower()
+            results = []
+
+            for entity in self.entities:
+                if query_lower in entity.name.lower():
+                    results.append((entity, 1.0))
+                elif entity.docstring and query_lower in entity.docstring.lower():
+                    results.append((entity, 0.5))
+
+            return results[:limit]
+
     def save(self, path: str = "autodoc_cache.json"):
         """Save analyzed entities to cache file."""
         data = {"entities": [asdict(e) for e in self.entities]}
@@ -417,6 +484,51 @@ class SimpleAutodoc:
                 methods.append(entity)
                 if len(methods) > 20:  # Limit to prevent excessive data
                     break
+
+        return methods
+
+    def _extract_imports(self, file_path: str) -> List[str]:
+        """Extract import statements from a file."""
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            import ast
+
+            tree = ast.parse(content)
+            imports = []
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        imports.append(f"import {alias.name}")
+                elif isinstance(node, ast.ImportFrom):
+                    module = node.module or ""
+                    for alias in node.names:
+                        imports.append(f"from {module} import {alias.name}")
+
+            return imports
+        except Exception as e:
+            console.print(f"[red]Error extracting imports from {file_path}: {e}[/red]")
+            return []
+
+    def _get_class_methods_detailed(
+        self, class_entity: CodeEntity, file_path: str
+    ) -> List[CodeEntity]:
+        """Get detailed information about class methods."""
+        methods = []
+
+        # Find all functions in the same file that come after the class
+        for entity in self.entities:
+            if (
+                entity.file_path == file_path
+                and entity.type == "function"
+                and entity.line_number > class_entity.line_number
+            ):
+
+                # Simple heuristic: if the function is indented and comes after the class,
+                # it's likely a method. More sophisticated analysis would check indentation.
+                methods.append(entity)
 
         return methods
 
