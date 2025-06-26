@@ -2,16 +2,20 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![TypeScript](https://img.shields.io/badge/TypeScript-Supported-007ACC.svg)](https://www.typescriptlang.org/)
 
-Autodoc is an AI-powered code intelligence tool that analyzes Python codebases and enables semantic search using OpenAI embeddings. It parses Python files using AST (Abstract Syntax Tree) to extract functions and classes, then generates embeddings for intelligent code search.
+Autodoc is an AI-powered code intelligence tool that analyzes Python and TypeScript codebases, enabling semantic search using OpenAI embeddings. It parses code using AST (Abstract Syntax Tree) analysis to extract functions, classes, and their relationships, then generates embeddings for intelligent code search.
 
 ## Features
 
 - 🔍 **Semantic Code Search** - Search your codebase using natural language queries
+- 🐍 **Python & TypeScript Support** - Full AST analysis for both languages
 - 📊 **Comprehensive Analysis** - Extract and analyze functions, classes, and their relationships
 - 🤖 **AI-Powered** - Optional OpenAI embeddings for enhanced search capabilities
 - 📝 **Rich Documentation** - Generate detailed codebase documentation in Markdown or JSON
 - 🚀 **Fast & Efficient** - Caches analysis results for quick repeated searches
+- 🌐 **API Server** - REST API for integration with other tools
+- 📈 **Graph Database** - Neo4j integration for relationship visualization
 - 📦 **Easy Integration** - Use as CLI tool or Python library
 - 🎨 **Beautiful Output** - Rich terminal UI with syntax highlighting
 
@@ -33,17 +37,16 @@ source .venv/bin/activate
 ### Command Line
 
 ```bash
-# Check setup
-autodoc check
+# Quick workflow
+autodoc analyze ./src          # Analyze your codebase
+autodoc generate              # Create AUTODOC.md documentation
+autodoc vector                # Generate embeddings for search  
+autodoc search "auth logic"   # Search with natural language
 
-# Analyze a codebase
-autodoc analyze ./my-project --save
-
-# Search analyzed code
-autodoc search "function that handles authentication"
-
-# Generate comprehensive documentation
-autodoc generate-summary --format markdown --output docs.md
+# Additional commands
+autodoc check                 # Check setup and configuration
+autodoc graph --visualize     # Build graph database with visualizations
+autodoc serve                 # Start REST API server
 ```
 
 ### Python API
