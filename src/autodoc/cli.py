@@ -35,7 +35,14 @@ console = Console()
 
 @click.group()
 def cli():
-    """Autodoc - AI-powered code intelligence"""
+    """Autodoc - AI-powered code intelligence
+    
+    Quick start:
+      1. autodoc analyze ./src          # Analyze your codebase
+      2. autodoc generate              # Create AUTODOC.md documentation
+      3. autodoc vector                # Generate embeddings for search
+      4. autodoc graph                 # Build graph database (optional)
+    """
     pass
 
 
@@ -156,10 +163,11 @@ def check():
         console.print("ℹ️  No analyzed code found - run 'autodoc analyze' first")
 
 
-@cli.command(name="build-graph")
+@cli.command(name="graph")
 @click.option("--clear", is_flag=True, help="Clear existing graph data")
-def build_graph(clear):
-    """Build code relationship graph in Neo4j"""
+@click.option("--visualize", is_flag=True, help="Create visualizations after building graph")
+def graph(clear, visualize):
+    """Build code relationship graph database"""
     if not GRAPH_AVAILABLE:
         console.print("[red]Graph functionality not available. Install graph dependencies:[/red]")
         console.print("pip install matplotlib plotly neo4j")
@@ -173,7 +181,7 @@ def build_graph(clear):
         return
 
     try:
-        console.print("[yellow]Building code graph...[/yellow]")
+        console.print("[yellow]Building code graph database...[/yellow]")
         builder = CodeGraphBuilder()
 
         if clear:
@@ -181,14 +189,102 @@ def build_graph(clear):
             console.print("✅ Cleared existing graph data")
 
         builder.build_from_autodoc(autodoc)
+        
+        console.print("[green]✅ Code graph database built successfully![/green]")
+        
+        # Create visualizations if requested
+        if visualize:
+            console.print("[yellow]Creating graph visualizations...[/yellow]")
+            query = CodeGraphQuery()
+            visualizer = CodeGraphVisualizer(query)
+            
+            try:
+                # Create interactive graph
+                visualizer.create_interactive_graph("code_graph.html")
+                console.print("  • Interactive graph: code_graph.html")
+                
+                # Create dependency graph
+                visualizer.create_module_dependency_graph("module_dependencies.png")
+                console.print("  • Module dependencies: module_dependencies.png")
+                
+                console.print("[green]✅ Visualizations created![/green]")
+            except Exception as viz_error:
+                console.print(f"[yellow]Warning: Could not create visualizations: {viz_error}[/yellow]")
+            finally:
+                query.close()
+        else:
+            console.print("[blue]💡 Use 'autodoc graph --visualize' to create visualizations[/blue]")
+        
         builder.close()
-
-        console.print("[green]✅ Code graph built successfully![/green]")
-        console.print("Use 'autodoc visualize-graph' to create visualizations")
 
     except Exception as e:
         console.print(f"[red]Error building graph: {e}[/red]")
         console.print("[yellow]Make sure Neo4j is running at bolt://localhost:7687[/yellow]")
+
+
+@cli.command(name="vector")
+@click.option("--regenerate", is_flag=True, help="Regenerate all embeddings (overwrite existing)")
+def vector(regenerate):
+    """Generate embeddings for semantic search"""
+    autodoc = SimpleAutodoc()
+    
+    # Load existing entities
+    autodoc.load()
+    
+    if not autodoc.entities:
+        console.print("[red]No analyzed code found. Run 'autodoc analyze' first.[/red]")
+        return
+    
+    if not autodoc.embedder:
+        console.print("[red]No OpenAI API key found. Set OPENAI_API_KEY environment variable.[/red]")
+        console.print("[blue]💡 Create a .env file with: OPENAI_API_KEY=sk-your-key-here[/blue]")
+        return
+    
+    # Check if embeddings already exist
+    existing_embeddings = sum(1 for entity in autodoc.entities if entity.embedding is not None)
+    
+    if existing_embeddings > 0 and not regenerate:
+        console.print(f"[yellow]Found {existing_embeddings} existing embeddings.[/yellow]")
+        console.print("[blue]💡 Use --regenerate to overwrite existing embeddings[/blue]")
+        return
+    
+    try:
+        console.print("[yellow]Generating embeddings for semantic search...[/yellow]")
+        
+        # Prepare texts for embedding
+        texts = []
+        entities_to_embed = []
+        
+        for entity in autodoc.entities:
+            if regenerate or entity.embedding is None:
+                text = f"{entity.type} {entity.name}"
+                if entity.docstring:
+                    text += f": {entity.docstring}"
+                texts.append(text)
+                entities_to_embed.append(entity)
+        
+        if not texts:
+            console.print("[green]✅ All entities already have embeddings![/green]")
+            return
+        
+        console.print(f"Generating embeddings for {len(texts)} entities...")
+        
+        # Generate embeddings in batches
+        import asyncio
+        embeddings = asyncio.run(autodoc.embedder.embed_batch(texts))
+        
+        # Assign embeddings to entities
+        for entity, embedding in zip(entities_to_embed, embeddings):
+            entity.embedding = embedding
+        
+        # Save updated entities
+        autodoc.save()
+        
+        console.print(f"[green]✅ Generated {len(embeddings)} embeddings![/green]")
+        console.print("[blue]💡 You can now use 'autodoc search' for semantic search[/blue]")
+        
+    except Exception as e:
+        console.print(f"[red]Error generating embeddings: {e}[/red]")
 
 
 @cli.command(name="visualize-graph")
@@ -233,7 +329,7 @@ def visualize_graph(output, deps, complexity, create_all):
 
     except Exception as e:
         console.print(f"[red]Error creating visualizations: {e}[/red]")
-        console.print("[yellow]Make sure you've run 'autodoc build-graph' first[/yellow]")
+        console.print("[yellow]Make sure you've run 'autodoc graph' first[/yellow]")
 
 
 @cli.command(name="query-graph")
@@ -334,20 +430,21 @@ def query_graph(entry_points, test_coverage, patterns, complexity, deps, show_al
 
     except Exception as e:
         console.print(f"[red]Error querying graph: {e}[/red]")
-        console.print("[yellow]Make sure you've run 'autodoc build-graph' first[/yellow]")
+        console.print("[yellow]Make sure you've run 'autodoc graph' first[/yellow]")
 
 
-@cli.command(name="generate-summary")
-@click.option("--output", "-o", help="Save summary to file (e.g., summary.md)")
+@cli.command(name="generate")
+@click.option("--output", "-o", default="AUTODOC.md", help="Output file path (default: AUTODOC.md)")
 @click.option(
     "--format",
     "output_format",
     default="markdown",
     type=click.Choice(["markdown", "json"]),
-    help="Output format",
+    help="Output format (default: markdown)",
 )
-def generate_summary(output, output_format):
-    """Generate a comprehensive codebase summary optimized for LLM context"""
+@click.option("--detailed", is_flag=True, help="Generate detailed documentation with code examples")
+def generate(output, output_format, detailed):
+    """Generate comprehensive codebase documentation"""
     autodoc = SimpleAutodoc()
     autodoc.load()
 
@@ -362,61 +459,59 @@ def generate_summary(output, output_format):
         console.print(f"[red]{summary['error']}[/red]")
         return
 
-    # Handle output format
+    # Handle output format and ensure proper file extension
     if output_format == "json":
         output_content = json.dumps(summary, indent=2, default=str)
-        if output:
-            if not output.endswith(".json"):
-                output = f"{output}.json"
+        if not output.endswith(".json"):
+            output = output.replace(".md", ".json") if output.endswith(".md") else output + ".json"
     else:  # markdown
         output_content = autodoc.format_summary_markdown(summary)
-        if output:
-            if not output.endswith(".md"):
-                output = f"{output}.md"
+        if not output.endswith(".md"):
+            output = output.replace(".json", ".md") if output.endswith(".json") else output + ".md"
 
-    # Save to file if output path specified
-    if output:
-        try:
-            with open(output, "w", encoding="utf-8") as f:
-                f.write(output_content)
-            console.print(f"[green]✅ Comprehensive documentation saved to {output}[/green]")
-            console.print(f"[blue]File size: {len(output_content):,} characters[/blue]")
+    # Always save to file
+    try:
+        with open(output, "w", encoding="utf-8") as f:
+            f.write(output_content)
+        console.print(f"[green]✅ Documentation generated: {output}[/green]")
+        console.print(f"[blue]File size: {len(output_content):,} characters[/blue]")
 
-            # Show preview of what was generated
-            overview = summary["overview"]
-            console.print("\n[bold]Generated Documentation Summary:[/bold]")
-            console.print(
-                f"- {overview['total_functions']} functions across {overview['total_files']} files"
-            )
-            console.print(f"- {overview['total_classes']} classes analyzed")
-            console.print(f"- {len(summary.get('feature_map', {}))} feature categories identified")
-            console.print(f"- {len(summary.get('modules', {}))} modules documented")
+        # Show preview of what was generated
+        overview = summary["overview"]
+        console.print("\n[bold]📊 Documentation Summary:[/bold]")
+        console.print(
+            f"  • {overview['total_functions']} functions across {overview['total_files']} files"
+        )
+        console.print(f"  • {overview['total_classes']} classes analyzed")
+        console.print(f"  • {len(summary.get('feature_map', {}))} feature categories identified")
+        console.print(f"  • {len(summary.get('modules', {}))} modules documented")
 
-            # Show build and CI info
-            if summary.get("build_system") and summary["build_system"].get("build_tools"):
-                console.print(f"- Build tools: {', '.join(summary['build_system']['build_tools'])}")
+        # Show build and CI info
+        if summary.get("build_system") and summary["build_system"].get("build_tools"):
+            console.print(f"  • Build tools: {', '.join(summary['build_system']['build_tools'])}")
 
-            if summary.get("test_system"):
-                test_count = summary["test_system"].get("test_functions_count", 0)
-                console.print(f"- {test_count} test functions found")
+        if summary.get("test_system"):
+            test_count = summary["test_system"].get("test_functions_count", 0)
+            console.print(f"  • {test_count} test functions found")
 
-            if summary.get("ci_configuration") and summary["ci_configuration"].get("has_ci"):
-                platforms = summary["ci_configuration"].get("platforms", [])
-                console.print(f"- CI/CD platforms: {', '.join(platforms)}")
+        if summary.get("ci_configuration") and summary["ci_configuration"].get("has_ci"):
+            platforms = summary["ci_configuration"].get("platforms", [])
+            console.print(f"  • CI/CD platforms: {', '.join(platforms)}")
 
-        except Exception as e:
-            console.print(f"[red]Error saving file: {e}[/red]")
-            # Fall back to displaying in console
-            if output_format == "markdown":
-                console.print(Markdown(output_content))
-            else:
-                console.print(output_content)
-    else:
-        # Display in console
-        if output_format == "markdown":
-            console.print(Markdown(output_content))
-        else:
-            console.print(output_content)
+    except Exception as e:
+        console.print(f"[red]Error saving file: {e}[/red]")
+
+
+# Backwards compatibility alias
+@cli.command(name="generate-summary", hidden=True)
+@click.option("--output", "-o", help="Output file path")
+@click.option("--format", "output_format", default="markdown", type=click.Choice(["markdown", "json"]))
+def generate_summary_alias(output, output_format):
+    """[DEPRECATED] Use 'autodoc generate' instead"""
+    console.print("[yellow]⚠️  'generate-summary' is deprecated. Use 'autodoc generate' instead.[/yellow]")
+    from click import Context
+    ctx = Context(generate)
+    return ctx.invoke(generate, output=output or "AUTODOC.md", output_format=output_format, detailed=False)
 
 
 @cli.command(name="local-graph")
