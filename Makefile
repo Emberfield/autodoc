@@ -187,10 +187,16 @@ configure-auth: check-config ## Configure authentication for Artifact Registry
 
 publish: check-config build ## Publish package to GCP Artifact Registry
 	@echo "$(YELLOW)Publishing to GCP Artifact Registry...$(NC)"
-	@echo "Repository URL: $(REGISTRY_URL)/simple/"
+	@echo "Repository URL: $(REGISTRY_URL)/"
+	@# Ensure we have the keyrings auth
+	@uv pip install --quiet keyrings.google-artifactregistry-auth
+	@# Configure twine to use the repository
+	@mkdir -p ~/.config/pip
+	@echo "[global]" > ~/.config/pip/pip.conf
+	@echo "extra-index-url = $(REGISTRY_URL)/simple/" >> ~/.config/pip/pip.conf
+	@# Upload using twine with keyring authentication
 	uv run python -m twine upload \
-		--repository-url $(REGISTRY_URL)/simple/ \
-		--username _json_key_base64 \
+		--repository-url $(REGISTRY_URL)/ \
 		$(DIST_DIR)/*
 	@echo "$(GREEN)✓ Package published successfully$(NC)"
 	@echo ""
