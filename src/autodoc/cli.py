@@ -19,7 +19,16 @@ try:
     from .graph import CodeGraphBuilder, CodeGraphQuery, CodeGraphVisualizer
 
     GRAPH_AVAILABLE = True
-except ImportError:
+except ImportError as e:
+    # Check if it's a specific import error or all dependencies missing
+    import importlib.util
+    deps_available = all(
+        importlib.util.find_spec(dep) is not None 
+        for dep in ["matplotlib", "plotly", "neo4j", "networkx", "pyvis"]
+    )
+    if deps_available:
+        # Dependencies are installed but there's another import issue
+        print(f"Warning: Graph dependencies installed but import failed: {e}")
     GRAPH_AVAILABLE = False
 
 # Local graph visualization (works without Neo4j)
@@ -169,8 +178,41 @@ def check():
 def graph(clear, visualize):
     """Build code relationship graph database"""
     if not GRAPH_AVAILABLE:
-        console.print("[red]Graph functionality not available. Install graph dependencies:[/red]")
-        console.print("pip install matplotlib plotly neo4j")
+        console.print("[red]Graph functionality not available.[/red]")
+        
+        # Check if dependencies are installed
+        import importlib.util
+        deps = {
+            "matplotlib": "visualization",
+            "plotly": "interactive graphs", 
+            "neo4j": "graph database",
+            "networkx": "graph analysis",
+            "pyvis": "network visualization"
+        }
+        
+        missing = []
+        for dep, desc in deps.items():
+            if importlib.util.find_spec(dep) is None:
+                missing.append(f"{dep} ({desc})")
+        
+        if missing:
+            console.print("[yellow]Missing dependencies:[/yellow]")
+            for dep in missing:
+                console.print(f"  • {dep}")
+            console.print("\n[blue]Install with:[/blue]")
+            console.print("  pip install matplotlib plotly neo4j networkx pyvis")
+            console.print("  # or")
+            console.print("  uv pip install matplotlib plotly neo4j networkx pyvis")
+        else:
+            console.print("[yellow]All dependencies are installed, but graph import failed.[/yellow]")
+            console.print("\nPossible causes:")
+            console.print("  • Neo4j database is not running")
+            console.print("  • Import conflicts or version incompatibilities")
+            console.print("\n[blue]To start Neo4j:[/blue]")
+            console.print("  • Docker: docker run -p 7687:7687 -p 7474:7474 neo4j")
+            console.print("  • Desktop: Start Neo4j Desktop application")
+            console.print("\n[blue]For local visualization without Neo4j, try:[/blue]")
+            console.print("  autodoc local-graph")
         return
 
     autodoc = SimpleAutodoc()
@@ -296,7 +338,7 @@ def visualize_graph(output, deps, complexity, create_all):
     """Create interactive visualizations of the code graph"""
     if not GRAPH_AVAILABLE:
         console.print("[red]Graph functionality not available. Install graph dependencies:[/red]")
-        console.print("pip install matplotlib plotly neo4j")
+        console.print("pip install matplotlib plotly neo4j networkx pyvis")
         return
 
     try:
@@ -343,7 +385,7 @@ def query_graph(entry_points, test_coverage, patterns, complexity, deps, show_al
     """Query the code graph for insights"""
     if not GRAPH_AVAILABLE:
         console.print("[red]Graph functionality not available. Install graph dependencies:[/red]")
-        console.print("pip install matplotlib plotly neo4j")
+        console.print("pip install matplotlib plotly neo4j networkx pyvis")
         return
 
     try:
