@@ -58,8 +58,8 @@ class CodeGraphBuilder:
             with self.driver.session() as session:
                 session.run("RETURN 1")
             print(f"Connected to Neo4j at {self.config.uri}")
-        except ServiceUnavailable:
-            print(f"Warning: Neo4j not available at {self.config.uri}")
+        except (ServiceUnavailable, Exception) as e:
+            print(f"Warning: Neo4j not available at {self.config.uri}: {e}")
             self.driver = None
 
     def close(self):
@@ -336,7 +336,8 @@ class CodeGraphQuery:
             self.driver = GraphDatabase.driver(
                 self.config.uri, auth=(self.config.username, self.config.password)
             )
-        except ServiceUnavailable:
+        except (ServiceUnavailable, Exception) as e:
+            print(f"Warning: Neo4j not available at {self.config.uri}: {e}")
             self.driver = None
 
     def close(self):

@@ -23,6 +23,18 @@ except ImportError:
     GRAPH_AVAILABLE = False
 
 
+def create_mock_neo4j_driver():
+    """Helper function to create a properly mocked Neo4j driver"""
+    mock_driver = Mock()
+    mock_session = Mock()
+    mock_context_manager = Mock()
+    mock_context_manager.__enter__ = Mock(return_value=mock_session)
+    mock_context_manager.__exit__ = Mock(return_value=None)
+    mock_driver.session.return_value = mock_context_manager
+    mock_session.run.return_value = []
+    return mock_driver, mock_session
+
+
 @pytest.mark.skipif(not GRAPH_AVAILABLE, reason="Graph dependencies not available")
 class TestGraphConfig:
     """Test graph configuration"""
@@ -66,10 +78,7 @@ class TestCodeGraphBuilder:
 
     def test_builder_with_mock_connection(self):
         """Test builder with mocked Neo4j connection"""
-        mock_driver = Mock()
-        mock_session = Mock()
-        mock_driver.session.return_value.__enter__.return_value = mock_session
-        mock_session.run.return_value = []
+        mock_driver, mock_session = create_mock_neo4j_driver()
 
         with patch("autodoc.graph.GraphDatabase.driver", return_value=mock_driver):
             builder = CodeGraphBuilder()
@@ -96,10 +105,7 @@ class TestCodeGraphBuilder:
 
     def test_build_from_autodoc_with_entities(self):
         """Test building graph with entities"""
-        mock_driver = Mock()
-        mock_session = Mock()
-        mock_driver.session.return_value.__enter__.return_value = mock_session
-        mock_session.run.return_value = []
+        mock_driver, mock_session = create_mock_neo4j_driver()
 
         with patch("autodoc.graph.GraphDatabase.driver", return_value=mock_driver):
             builder = CodeGraphBuilder()
@@ -144,16 +150,13 @@ class TestCodeGraphQuery:
 
     def test_find_entry_points_with_data(self):
         """Test finding entry points with mocked data"""
-        mock_driver = Mock()
-        mock_session = Mock()
-        mock_result = Mock()
+        mock_driver, mock_session = create_mock_neo4j_driver()
 
-        # Mock the query result
-        mock_result.__iter__.return_value = [
+        # Mock the query result to return entry points
+        mock_result = [
             {"name": "main", "file": "cli.py", "description": "Main entry point"}
         ]
         mock_session.run.return_value = mock_result
-        mock_driver.session.return_value.__enter__.return_value = mock_session
 
         with patch("autodoc.graph.GraphDatabase.driver", return_value=mock_driver):
             query = CodeGraphQuery()
@@ -245,17 +248,14 @@ class TestCodeGraphVisualizer:
     @patch("autodoc.graph.nx")
     def test_create_module_dependency_graph_with_data(self, mock_nx, mock_plt):
         """Test module dependency graph creation with data"""
-        mock_driver = Mock()
-        mock_session = Mock()
-        mock_result = Mock()
+        mock_driver, mock_session = create_mock_neo4j_driver()
 
         # Mock the query result
-        mock_result.__iter__.return_value = [
+        mock_result = [
             {"source": "module1", "target": "module2"},
             {"source": "module2", "target": "module3"},
         ]
         mock_session.run.return_value = mock_result
-        mock_driver.session.return_value.__enter__.return_value = mock_session
 
         mock_query = Mock()
         mock_query.driver = mock_driver

@@ -16,6 +16,13 @@ from .embedder import OpenAIEmbedder
 from .project_analyzer import ProjectAnalyzer
 from .summary import CodeAnalyzer, MarkdownFormatter
 
+# Optional TypeScript analyzer import
+try:
+    from .typescript_analyzer import TypeScriptAnalyzer, TypeScriptEntity
+    TYPESCRIPT_AVAILABLE = True
+except ImportError:
+    TYPESCRIPT_AVAILABLE = False
+
 console = Console()
 
 
@@ -24,7 +31,16 @@ class SimpleAutodoc:
 
     def __init__(self):
         self.analyzer = SimpleASTAnalyzer()
+        self.ts_analyzer = None
         self.embedder = None
+
+        # Initialize TypeScript analyzer if available
+        if TYPESCRIPT_AVAILABLE:
+            self.ts_analyzer = TypeScriptAnalyzer()
+            if not self.ts_analyzer.is_available():
+                console.print("[yellow]TypeScript analyzer initialized but tree-sitter not available[/yellow]")
+        else:
+            console.print("[yellow]TypeScript analyzer not available[/yellow]")
 
         api_key = os.getenv("OPENAI_API_KEY")
         if api_key and api_key != "sk-...":
@@ -36,7 +52,19 @@ class SimpleAutodoc:
 
     async def analyze_directory(self, path: Path) -> Dict[str, Any]:
         """Analyze a directory and return analysis summary."""
-        all_entities = self.analyzer.analyze_directory(path)
+        console.print(f"[blue]Analyzing directory: {path}[/blue]")
+        
+        # Analyze Python files
+        python_entities = self.analyzer.analyze_directory(path)
+        all_entities = python_entities.copy()  # Create a copy to avoid modifying the original list
+        
+        # Analyze TypeScript files if analyzer is available
+        typescript_entities = []
+        if self.ts_analyzer and self.ts_analyzer.is_available():
+            typescript_entities = self.ts_analyzer.analyze_directory(path)
+            all_entities.extend(typescript_entities)
+        
+        console.print(f"[green]Found {len(python_entities)} Python entities and {len(typescript_entities)} TypeScript entities[/green]")
 
         if self.embedder and all_entities:
             console.print("[blue]Generating embeddings...[/blue]")
@@ -55,12 +83,36 @@ class SimpleAutodoc:
 
         self.entities = all_entities
 
+        # Calculate language-specific stats
+        python_files = len(set(e.file_path for e in python_entities))
+        typescript_files = len(set(e.file_path for e in typescript_entities))
+        
         return {
             "files_analyzed": len(set(e.file_path for e in all_entities)),
             "total_entities": len(all_entities),
             "functions": len([e for e in all_entities if e.type == "function"]),
             "classes": len([e for e in all_entities if e.type == "class"]),
+            "methods": len([e for e in all_entities if e.type == "method"]),
+            "interfaces": len([e for e in all_entities if e.type == "interface"]),
+            "types": len([e for e in all_entities if e.type == "type"]),
             "has_embeddings": self.embedder is not None,
+            "languages": {
+                "python": {
+                    "files": python_files,
+                    "entities": len(python_entities),
+                    "functions": len([e for e in python_entities if e.type == "function"]),
+                    "classes": len([e for e in python_entities if e.type == "class"])
+                },
+                "typescript": {
+                    "files": typescript_files,
+                    "entities": len(typescript_entities),
+                    "functions": len([e for e in typescript_entities if e.type == "function"]),
+                    "classes": len([e for e in typescript_entities if e.type == "class"]),
+                    "methods": len([e for e in typescript_entities if e.type == "method"]),
+                    "interfaces": len([e for e in typescript_entities if e.type == "interface"]),
+                    "types": len([e for e in typescript_entities if e.type == "type"])
+                }
+            }
         }
 
     async def search(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
