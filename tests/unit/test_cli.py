@@ -93,8 +93,8 @@ class TestCLIIntegration:
 
         runner = CliRunner()
 
-        # Test build-graph command
-        result = runner.invoke(cli, ["build-graph"])
+        # Test graph command
+        result = runner.invoke(cli, ["graph"])
         assert result.exit_code == 0
         assert "Graph functionality not available" in result.output
 

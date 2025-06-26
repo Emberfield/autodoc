@@ -398,10 +398,10 @@ class TestGraphCLI:
 
     def test_cli_commands_imported(self):
         """Test that CLI commands can be imported"""
-        from autodoc.cli import build_graph, query_graph, visualize_graph
+        from autodoc.cli import graph, query_graph, visualize_graph
 
         # Verify the functions exist
-        assert callable(build_graph)
+        assert callable(graph)
         assert callable(visualize_graph)
         assert callable(query_graph)
 
@@ -420,10 +420,10 @@ class TestGraphUnavailable:
     @patch("autodoc.cli.GRAPH_AVAILABLE", False)
     def test_graph_commands_handle_missing_deps(self):
         """Test that graph commands handle missing dependencies gracefully"""
-        from autodoc.cli import build_graph, query_graph, visualize_graph
+        from autodoc.cli import graph, query_graph, visualize_graph
 
         # These should exist even when dependencies are missing
-        assert callable(build_graph)
+        assert callable(graph)
         assert callable(visualize_graph)
         assert callable(query_graph)
 
