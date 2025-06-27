@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set
 
 from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
 from .analyzer import CodeEntity
 from .config import AutodocConfig
@@ -491,62 +492,73 @@ Examples:
                     files_entities[entity.file_path] = []
                 files_entities[entity.file_path].append(entity)
         
-        # Process each file
-        for file_path, file_entities in files_entities.items():
-            path = Path(file_path)
+        # Process each file with progress bar
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            console=console
+        ) as progress:
+            task = progress.add_task("[cyan]Processing files...", total=len(files_entities))
             
-            if not path.exists() or path.suffix != '.py':
-                continue
-            
-            console.print(f"[yellow]Enriching {path.name}...[/yellow]")
-            
-            # Get enrichments for entities in this file
-            enrichments = {}
-            entities_to_enrich = []
-            
-            for entity in file_entities:
-                cache_key = f"{entity.file_path}:{entity.name}:{entity.line_number}"
-                existing_enrichment = enrichment_cache.get_enrichment(cache_key)
+            for file_path, file_entities in files_entities.items():
+                path = Path(file_path)
                 
-                if existing_enrichment and not force:
-                    enrichments[cache_key] = existing_enrichment
-                else:
-                    entities_to_enrich.append(entity)
-            
-            # Enrich missing entities
-            if entities_to_enrich:
-                try:
-                    async with LLMEnricher(self.config) as enricher:
-                        enriched = await enricher.enrich_entities(entities_to_enrich)
-                        
-                        for enriched_entity in enriched:
-                            cache_key = f"{enriched_entity.entity.file_path}:{enriched_entity.entity.name}:{enriched_entity.entity.line_number}"
-                            enrichment_data = {
-                                "description": enriched_entity.description,
-                                "purpose": enriched_entity.purpose,
-                                "key_features": enriched_entity.key_features,
-                                "complexity_notes": enriched_entity.complexity_notes,
-                                "usage_examples": enriched_entity.usage_examples,
-                                "design_patterns": enriched_entity.design_patterns,
-                                "dependencies": enriched_entity.dependencies
-                            }
-                            enrichments[cache_key] = enrichment_data
-                            enrichment_cache.set_enrichment(cache_key, enrichment_data)
-                
-                except Exception as e:
-                    console.print(f"[red]Error enriching entities in {path.name}: {e}[/red]")
+                if not path.exists() or path.suffix != '.py':
                     continue
-            
-            # Update file with docstrings
-            result = self._update_file_with_docstrings(path, file_entities, enrichments)
-            results.append(result)
-            
-            # Mark file as processed
-            if result.updated_docstrings > 0:
-                self.change_detector.mark_processed(path, file_entities)
-                console.print(f"[green]✅ Updated {result.updated_docstrings} docstrings in {path.name}[/green]")
-            else:
-                console.print(f"[yellow]No updates needed for {path.name}[/yellow]")
+                
+                progress.update(task, description=f"[cyan]Enriching {path.name}...")
+                
+                # Get enrichments for entities in this file
+                enrichments = {}
+                entities_to_enrich = []
+                
+                for entity in file_entities:
+                    cache_key = f"{entity.file_path}:{entity.name}:{entity.line_number}"
+                    existing_enrichment = enrichment_cache.get_enrichment(cache_key)
+                    
+                    if existing_enrichment and not force:
+                        enrichments[cache_key] = existing_enrichment
+                    else:
+                        entities_to_enrich.append(entity)
+                
+                # Enrich missing entities
+                if entities_to_enrich:
+                    try:
+                        async with LLMEnricher(self.config) as enricher:
+                            enriched = await enricher.enrich_entities(entities_to_enrich)
+                            
+                            for enriched_entity in enriched:
+                                cache_key = f"{enriched_entity.entity.file_path}:{enriched_entity.entity.name}:{enriched_entity.entity.line_number}"
+                                enrichment_data = {
+                                    "description": enriched_entity.description,
+                                    "purpose": enriched_entity.purpose,
+                                    "key_features": enriched_entity.key_features,
+                                    "complexity_notes": enriched_entity.complexity_notes,
+                                    "usage_examples": enriched_entity.usage_examples,
+                                    "design_patterns": enriched_entity.design_patterns,
+                                    "dependencies": enriched_entity.dependencies
+                                }
+                                enrichments[cache_key] = enrichment_data
+                                enrichment_cache.set_enrichment(cache_key, enrichment_data)
+                    
+                    except Exception as e:
+                        console.print(f"[red]Error enriching entities in {path.name}: {e}[/red]")
+                        continue
+                
+                # Update file with docstrings
+                result = self._update_file_with_docstrings(path, file_entities, enrichments)
+                results.append(result)
+                
+                # Mark file as processed
+                if result.updated_docstrings > 0:
+                    self.change_detector.mark_processed(path, file_entities)
+                    console.print(f"[green]✅ Updated {result.updated_docstrings} docstrings in {path.name}[/green]")
+                else:
+                    console.print(f"[yellow]No updates needed for {path.name}[/yellow]")
+                
+                progress.advance(task)
         
         # Save enrichment cache
         enrichment_cache.save_cache()

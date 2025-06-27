@@ -10,6 +10,7 @@ from pathlib import Path
 import click
 from rich.console import Console
 from rich.table import Table
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
 from .autodoc import SimpleAutodoc
 from .config import AutodocConfig
@@ -268,6 +269,194 @@ def search(query, limit, type, file, regex):
         )
 
     console.print(table)
+
+
+@cli.command()
+@click.argument("cache1", type=click.Path(exists=True), default="autodoc_cache.json")
+@click.argument("cache2", type=click.Path(exists=True), required=False)
+@click.option("--detailed", "-d", is_flag=True, help="Show detailed differences")
+def diff(cache1, cache2, detailed):
+    """Compare two analysis caches to see what changed
+    
+    Examples:
+      autodoc diff                               # Compare current with previous backup
+      autodoc diff cache1.json cache2.json      # Compare two specific caches
+      autodoc diff --detailed                   # Show detailed changes
+    """
+    import json
+    from pathlib import Path
+    
+    # If no second cache specified, look for backup
+    if not cache2:
+        backup_path = Path(f"{cache1}.backup")
+        if backup_path.exists():
+            cache2 = str(backup_path)
+            console.print(f"[blue]Comparing {cache1} with backup {cache2}[/blue]")
+        else:
+            console.print("[red]No second cache file specified and no backup found.[/red]")
+            console.print("[yellow]Usage: autodoc diff [cache1] [cache2][/yellow]")
+            return
+    
+    # Load caches
+    try:
+        with open(cache1, 'r') as f:
+            data1 = json.load(f)
+        with open(cache2, 'r') as f:
+            data2 = json.load(f)
+    except Exception as e:
+        console.print(f"[red]Error loading cache files: {e}[/red]")
+        return
+    
+    entities1 = {f"{e['file_path']}:{e['name']}": e for e in data1.get('entities', [])}
+    entities2 = {f"{e['file_path']}:{e['name']}": e for e in data2.get('entities', [])}
+    
+    # Find differences
+    added = set(entities1.keys()) - set(entities2.keys())
+    removed = set(entities2.keys()) - set(entities1.keys())
+    common = set(entities1.keys()) & set(entities2.keys())
+    
+    modified = []
+    for key in common:
+        e1 = entities1[key]
+        e2 = entities2[key]
+        # Check if entity has changed (line number, docstring, code)
+        if (e1.get('line_number') != e2.get('line_number') or
+            e1.get('docstring') != e2.get('docstring') or
+            e1.get('code') != e2.get('code')):
+            modified.append(key)
+    
+    # Display summary
+    console.print("\n[bold]Analysis Diff Summary:[/bold]")
+    console.print(f"  Added: [green]{len(added)}[/green] entities")
+    console.print(f"  Removed: [red]{len(removed)}[/red] entities")
+    console.print(f"  Modified: [yellow]{len(modified)}[/yellow] entities")
+    console.print(f"  Unchanged: {len(common) - len(modified)} entities")
+    
+    if detailed or (added or removed or modified):
+        # Show details
+        if added:
+            console.print("\n[green]Added entities:[/green]")
+            for key in sorted(added):
+                entity = entities1[key]
+                console.print(f"  + {entity['type']} {entity['name']} in {Path(entity['file_path']).name}")
+        
+        if removed:
+            console.print("\n[red]Removed entities:[/red]")
+            for key in sorted(removed):
+                entity = entities2[key]
+                console.print(f"  - {entity['type']} {entity['name']} in {Path(entity['file_path']).name}")
+        
+        if modified and detailed:
+            console.print("\n[yellow]Modified entities:[/yellow]")
+            for key in sorted(modified):
+                entity1 = entities1[key]
+                entity2 = entities2[key]
+                console.print(f"  ~ {entity1['type']} {entity1['name']} in {Path(entity1['file_path']).name}")
+                
+                # Show what changed
+                if entity1.get('line_number') != entity2.get('line_number'):
+                    console.print(f"    Line: {entity2.get('line_number')} → {entity1.get('line_number')}")
+                if entity1.get('docstring') != entity2.get('docstring'):
+                    console.print(f"    Docstring: {'added' if entity1.get('docstring') and not entity2.get('docstring') else 'modified' if entity1.get('docstring') else 'removed'}")
+
+
+@cli.command()
+@click.argument("output", type=click.Path(), default="autodoc_export.zip")
+@click.option("--include-enrichments", is_flag=True, help="Include enrichment cache")
+@click.option("--include-config", is_flag=True, help="Include configuration")
+def export(output, include_enrichments, include_config):
+    """Export analysis data for sharing with team
+    
+    Creates a zip file containing:
+    - autodoc_cache.json (analysis results)
+    - autodoc_enrichment_cache.json (if --include-enrichments)
+    - autodoc_config.json (if --include-config)
+    """
+    import zipfile
+    import os
+    from pathlib import Path
+    
+    files_to_export = []
+    
+    # Always include main cache
+    if Path("autodoc_cache.json").exists():
+        files_to_export.append("autodoc_cache.json")
+    else:
+        console.print("[red]No analysis cache found. Run 'autodoc analyze' first.[/red]")
+        return
+    
+    # Include enrichments if requested
+    if include_enrichments and Path("autodoc_enrichment_cache.json").exists():
+        files_to_export.append("autodoc_enrichment_cache.json")
+    
+    # Include config if requested
+    if include_config and Path("autodoc_config.json").exists():
+        files_to_export.append("autodoc_config.json")
+    
+    # Create zip file
+    try:
+        with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for file in files_to_export:
+                zf.write(file)
+                console.print(f"[green]Added {file}[/green]")
+        
+        # Get file size
+        size = Path(output).stat().st_size / 1024  # KB
+        console.print(f"\n[green]✅ Exported to {output} ({size:.1f} KB)[/green]")
+        console.print(f"[blue]Files included: {', '.join(files_to_export)}[/blue]")
+        
+    except Exception as e:
+        console.print(f"[red]Error creating export: {e}[/red]")
+
+
+@cli.command()
+@click.argument("input_file", type=click.Path(exists=True))
+@click.option("--overwrite", is_flag=True, help="Overwrite existing files")
+def import_(input_file, overwrite):
+    """Import analysis data from export file
+    
+    Extracts and imports:
+    - autodoc_cache.json
+    - autodoc_enrichment_cache.json (if present)
+    - autodoc_config.json (if present)
+    """
+    import zipfile
+    from pathlib import Path
+    
+    try:
+        with zipfile.ZipFile(input_file, 'r') as zf:
+            # List files in archive
+            files = zf.namelist()
+            console.print(f"[blue]Found {len(files)} files in archive:[/blue]")
+            for file in files:
+                console.print(f"  • {file}")
+            
+            # Check for existing files
+            existing = [f for f in files if Path(f).exists()]
+            if existing and not overwrite:
+                console.print("\n[yellow]The following files already exist:[/yellow]")
+                for file in existing:
+                    console.print(f"  • {file}")
+                console.print("[red]Use --overwrite to replace existing files.[/red]")
+                return
+            
+            # Extract files
+            console.print("\n[yellow]Importing files...[/yellow]")
+            for file in files:
+                zf.extract(file)
+                console.print(f"[green]✅ Imported {file}[/green]")
+            
+            # Load and show summary
+            autodoc = SimpleAutodoc()
+            autodoc.load()
+            console.print(f"\n[green]Successfully imported {len(autodoc.entities)} entities[/green]")
+            
+            # Check for enrichments
+            if "autodoc_enrichment_cache.json" in files:
+                console.print("[blue]Enrichment cache also imported[/blue]")
+            
+    except Exception as e:
+        console.print(f"[red]Error importing: {e}[/red]")
 
 
 @cli.command()

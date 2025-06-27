@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
 console = Console()
 
@@ -76,27 +77,54 @@ class SimpleASTAnalyzer:
             console.print(f"[red]Error analyzing {file_path}: {e}[/red]")
         return entities
 
-    def analyze_directory(self, path: Path) -> List[CodeEntity]:
+    def analyze_directory(self, path: Path, exclude_patterns: List[str] = None) -> List[CodeEntity]:
         """Analyze all Python files in a directory."""
         console.print(f"[blue]Analyzing {path}...[/blue]")
+        
+        # Default exclude patterns
+        default_excludes = ["__pycache__", "venv", ".venv", "build", "dist", "node_modules", ".git", 
+                           "test_install", "lib", "libs", ".tox", ".eggs", "*.egg-info"]
 
         python_files = list(path.rglob("*.py"))
-        python_files = [
-            f
-            for f in python_files
-            if not any(
-                skip in f.parts for skip in ["__pycache__", "venv", ".venv", "build", "dist"]
-            )
-        ]
+        
+        # Filter files
+        filtered_files = []
+        for f in python_files:
+            # Skip if in default exclude directories
+            if any(skip in f.parts for skip in default_excludes):
+                continue
+            
+            # Skip if matches exclude patterns
+            if exclude_patterns:
+                relative_path = f.relative_to(path)
+                if any(relative_path.match(pattern) for pattern in exclude_patterns):
+                    continue
+            
+            filtered_files.append(f)
+        
+        python_files = filtered_files
 
         console.print(f"Found {len(python_files)} Python files")
 
         all_entities = []
-        for file_path in python_files:
-            entities = self.analyze_file(file_path)
-            all_entities.extend(entities)
+        
+        # Use progress bar for file analysis
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            console=console
+        ) as progress:
+            task = progress.add_task("[cyan]Analyzing files...", total=len(python_files))
+            
+            for file_path in python_files:
+                progress.update(task, description=f"[cyan]Analyzing {file_path.name}...")
+                entities = self.analyze_file(file_path)
+                all_entities.extend(entities)
+                progress.advance(task)
 
-        console.print(f"Found {len(all_entities)} code entities")
+        console.print(f"[green]Found {len(all_entities)} code entities[/green]")
         return all_entities
 
 
@@ -261,7 +289,7 @@ class EnhancedASTAnalyzer(SimpleASTAnalyzer):
                     decorators.append(f"@{ast.unparse(decorator)}")
                 else:
                     decorators.append(f"@{ast.unparse(decorator)}")
-            except:
+            except Exception:
                 decorators.append("@<decorator>")
         return decorators
 
@@ -369,7 +397,7 @@ class EnhancedASTAnalyzer(SimpleASTAnalyzer):
                 call_str = None
                 try:
                     call_str = ast.unparse(child)
-                except:
+                except Exception:
                     continue
 
                 # Look for HTTP client patterns

@@ -413,8 +413,17 @@ class SimpleAutodoc:
             results.sort(key=lambda x: x[1], reverse=True)
             return results[:limit]
 
-    def save(self, path: str = "autodoc_cache.json"):
+    def save(self, path: str = "autodoc_cache.json", create_backup: bool = True):
         """Save analyzed entities to cache file."""
+        # Create backup if file exists
+        if create_backup and Path(path).exists():
+            backup_path = f"{path}.backup"
+            try:
+                import shutil
+                shutil.copy2(path, backup_path)
+            except Exception as e:
+                console.print(f"[yellow]Warning: Could not create backup: {e}[/yellow]")
+        
         data = {"entities": [asdict(e) for e in self.entities]}
         with open(path, "w") as f:
             json.dump(data, f, indent=2)
