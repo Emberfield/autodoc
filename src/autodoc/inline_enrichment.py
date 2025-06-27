@@ -4,18 +4,18 @@ Inline enrichment functionality for adding enriched docstrings directly to code 
 """
 
 import ast
-import json
 import hashlib
-from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+import json
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional, Set
 
 from rich.console import Console
 
 from .analyzer import CodeEntity
-from .enrichment import LLMEnricher, EnrichmentCache
 from .config import AutodocConfig
+from .enrichment import EnrichmentCache, LLMEnricher
 
 console = Console()
 
@@ -253,14 +253,15 @@ Examples:
     Enriching a single Python file: `enricher = InlineEnricher(); enricher.enrich('example.py')`
     Batch enriching multiple files: `enricher = InlineEnricher(); enricher.enrich_multiple(['file1.py', 'file2.py'])`"""
     
-    def __init__(self, config: AutodocConfig, backup: bool = True):
+    def __init__(self, config: AutodocConfig, backup: bool = True, dry_run: bool = False):
         self.config = config
         self.backup = backup
+        self.dry_run = dry_run
         self.change_detector = ChangeDetector()
     
     def _backup_file(self, file_path: Path):
         """Create backup of original file."""
-        if not self.backup:
+        if not self.backup or self.dry_run:
             return
         
         backup_path = file_path.with_suffix(f"{file_path.suffix}.autodoc_backup")
@@ -366,7 +367,6 @@ Examples:
         
         # Track changes
         updated_lines = lines.copy()
-        line_offset = 0
         
         # Sort entities by line number (reverse order for safe insertion)
         file_entities = [e for e in entities if e.file_path == str(file_path)]
@@ -447,12 +447,16 @@ Examples:
             result.updated_docstrings += 1
         
         # Write updated file
-        try:
-            with open(file_path, 'w', encoding='utf-8') as f:
-                f.writelines(updated_lines)
-        except Exception as e:
-            result.errors.append(f"Could not write file: {e}")
-            return result
+        if not self.dry_run:
+            try:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.writelines(updated_lines)
+            except Exception as e:
+                result.errors.append(f"Could not write file: {e}")
+                return result
+        else:
+            # In dry run mode, just log what would be written
+            console.print(f"[blue]DRY RUN: Would update {file_path}[/blue]")
         
         return result
     
@@ -562,8 +566,9 @@ Examples:
     generator = ModuleEnrichmentGenerator(); generator.generate_enrichment(module_name)
     enrichment_file = generator.create_enrichment_file(module_info)"""
     
-    def __init__(self, config: AutodocConfig):
+    def __init__(self, config: AutodocConfig, dry_run: bool = False):
         self.config = config
+        self.dry_run = dry_run
     
     def _get_module_entities(self, entities: List[CodeEntity], file_path: str) -> List[CodeEntity]:
         """Get all entities for a specific module."""
@@ -624,23 +629,27 @@ Examples:
             # Generate output file
             if output_format == "markdown":
                 output_file = path.with_suffix('.enrichment.md')
-                content = self._generate_markdown_enrichment(overview, enriched_entities)
+                content = self._generate_markdown_enrichment(overview, enriched_entities, file_entities)
             else:  # JSON
                 output_file = path.with_suffix('.enrichment.json')
-                content = self._generate_json_enrichment(overview, enriched_entities)
+                content = self._generate_json_enrichment(overview, enriched_entities, file_entities)
             
             # Write file
-            try:
-                with open(output_file, 'w', encoding='utf-8') as f:
-                    f.write(content)
+            if not self.dry_run:
+                try:
+                    with open(output_file, 'w', encoding='utf-8') as f:
+                        f.write(content)
+                    generated_files.append(str(output_file))
+                    console.print(f"[green]Generated {output_file.name}[/green]")
+                except Exception as e:
+                    console.print(f"[red]Error generating {output_file}: {e}[/red]")
+            else:
                 generated_files.append(str(output_file))
-                console.print(f"[green]Generated {output_file.name}[/green]")
-            except Exception as e:
-                console.print(f"[red]Error generating {output_file}: {e}[/red]")
+                console.print(f"[blue]DRY RUN: Would generate {output_file.name}[/blue]")
         
         return generated_files
     
-    def _generate_markdown_enrichment(self, overview: Dict, enriched_entities: List) -> str:
+    def _generate_markdown_enrichment(self, overview: Dict, enriched_entities: List, all_entities: List[CodeEntity]) -> str:
         """Generate markdown enrichment file."""
         lines = []
         lines.append(f"# {overview['module_name']} - Module Enrichment")
@@ -682,21 +691,57 @@ Examples:
                 if enrichment.get('usage_examples'):
                     lines.append("**Usage Examples:**")
                     for example in enrichment['usage_examples']:
-                        lines.append(f"```python")
+                        lines.append("```python")
                         lines.append(example)
                         lines.append("```")
                     lines.append("")
                 
                 lines.append("---")
                 lines.append("")
+        else:
+            lines.append("## Module Entities")
+            lines.append("")
+            lines.append("*No enrichments available yet. Run `autodoc enrich` to add detailed descriptions.*")
+            lines.append("")
+            
+            # Group entities by type
+            functions = [e for e in all_entities if e.type == "function"]
+            classes = [e for e in all_entities if e.type == "class"]
+            
+            if functions:
+                lines.append("### Functions")
+                lines.append("")
+                for func in sorted(functions, key=lambda x: x.name):
+                    lines.append(f"#### `{func.name}` (line {func.line_number})")
+                    if func.docstring:
+                        lines.append(f"> {func.docstring.split(chr(10))[0]}")  # First line of docstring
+                    lines.append("")
+            
+            if classes:
+                lines.append("### Classes")
+                lines.append("")
+                for cls in sorted(classes, key=lambda x: x.name):
+                    lines.append(f"#### `{cls.name}` (line {cls.line_number})")
+                    if cls.docstring:
+                        lines.append(f"> {cls.docstring.split(chr(10))[0]}")  # First line of docstring
+                    
+                    # Show class methods
+                    methods = [e for e in all_entities if e.type == "method" and e.parent_class == cls.name]
+                    if methods:
+                        lines.append("")
+                        lines.append("**Methods:**")
+                        for method in sorted(methods, key=lambda x: x.name):
+                            lines.append(f"- `{method.name}` (line {method.line_number})")
+                    lines.append("")
         
         return '\n'.join(lines)
     
-    def _generate_json_enrichment(self, overview: Dict, enriched_entities: List) -> str:
+    def _generate_json_enrichment(self, overview: Dict, enriched_entities: List, all_entities: List[CodeEntity]) -> str:
         """Generate JSON enrichment file."""
         data = {
             "overview": overview,
-            "enriched_entities": []
+            "enriched_entities": [],
+            "all_entities": []
         }
         
         for item in enriched_entities:
@@ -709,5 +754,17 @@ Examples:
                 "line_number": entity.line_number,
                 "enrichment": enrichment
             })
+        
+        # Add all entities basic info
+        for entity in all_entities:
+            entity_info = {
+                "type": entity.type,
+                "name": entity.name,
+                "line_number": entity.line_number,
+                "docstring": entity.docstring
+            }
+            if entity.type == "method":
+                entity_info["parent_class"] = entity.parent_class
+            data["all_entities"].append(entity_info)
         
         return json.dumps(data, indent=2)

@@ -9,12 +9,11 @@ from pathlib import Path
 
 import click
 from rich.console import Console
-from rich.markdown import Markdown
 from rich.table import Table
 
 from .autodoc import SimpleAutodoc
 from .config import AutodocConfig
-from .enrichment import LLMEnricher, EnrichmentCache
+from .enrichment import EnrichmentCache, LLMEnricher
 from .inline_enrichment import InlineEnricher, ModuleEnrichmentGenerator
 
 # Optional graph imports - only available if dependencies are installed
@@ -61,18 +60,37 @@ def cli():
 @cli.command()
 @click.argument("path", type=click.Path(exists=True), default=".")
 @click.option("--save", is_flag=True, help="Save analysis to cache")
-def analyze(path, save):
+@click.option("--incremental", is_flag=True, help="Only analyze changed files")
+@click.option("--exclude", "-e", multiple=True, help="Patterns to exclude (can be used multiple times)")
+@click.option("--watch", "-w", is_flag=True, help="Watch for changes and re-analyze automatically")
+def analyze(path, save, incremental, exclude, watch):
     """Analyze a codebase"""
     autodoc = SimpleAutodoc()
 
-    # Run async function in event loop
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        summary = loop.run_until_complete(autodoc.analyze_directory(Path(path)))
-    finally:
-        loop.close()
+    if watch:
+        # Watch mode
+        console.print("[blue]Starting watch mode. Press Ctrl+C to stop.[/blue]")
+        _run_watch_mode(autodoc, path, save, exclude)
+    else:
+        # Single analysis
+        # Run async function in event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            summary = loop.run_until_complete(
+                autodoc.analyze_directory(Path(path), incremental=incremental, exclude_patterns=list(exclude))
+            )
+        finally:
+            loop.close()
+        
+        _display_summary(summary)
+        
+        if save:
+            autodoc.save()
 
+
+def _display_summary(summary):
+    """Display analysis summary."""
     console.print("\n[bold]Analysis Summary:[/bold]")
     
     # Display overall stats
@@ -111,15 +129,110 @@ def analyze(path, save):
             console.print(f"  Interfaces: {languages['typescript']['interfaces']}")
             console.print(f"  Types: {languages['typescript']['types']}")
 
-    if save:
-        autodoc.save()
+
+def _run_watch_mode(autodoc, path, save, exclude):
+    """Run analysis in watch mode."""
+    import time
+    
+    try:
+        from watchdog.observers import Observer
+        from watchdog.events import FileSystemEventHandler
+    except ImportError:
+        console.print("[red]Watch mode requires 'watchdog' package.[/red]")
+        console.print("[yellow]Install with: pip install watchdog[/yellow]")
+        return
+    
+    class CodeChangeHandler(FileSystemEventHandler):
+        def __init__(self):
+            self.last_modified = {}
+            self.debounce_seconds = 1.0
+            
+        def should_process(self, file_path):
+            """Check if file should be processed."""
+            if not file_path.endswith(('.py', '.ts', '.tsx')):
+                return False
+            
+            # Check debounce
+            now = time.time()
+            last = self.last_modified.get(file_path, 0)
+            if now - last < self.debounce_seconds:
+                return False
+            
+            self.last_modified[file_path] = now
+            return True
+            
+        def on_modified(self, event):
+            if event.is_directory:
+                return
+                
+            if self.should_process(event.src_path):
+                console.print(f"\n[yellow]Detected change in {event.src_path}[/yellow]")
+                
+                # Run incremental analysis
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    summary = loop.run_until_complete(
+                        autodoc.analyze_directory(Path(path), incremental=True, exclude_patterns=list(exclude))
+                    )
+                    _display_summary(summary)
+                    if save:
+                        autodoc.save()
+                        console.print("[green]✅ Cache updated[/green]")
+                except Exception as e:
+                    console.print(f"[red]Error during analysis: {e}[/red]")
+                finally:
+                    loop.close()
+                    
+                console.print("\n[dim]Watching for changes... (Ctrl+C to stop)[/dim]")
+    
+    # Initial analysis
+    console.print("[yellow]Running initial analysis...[/yellow]")
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        summary = loop.run_until_complete(
+            autodoc.analyze_directory(Path(path), incremental=False, exclude_patterns=list(exclude))
+        )
+        _display_summary(summary)
+        if save:
+            autodoc.save()
+    finally:
+        loop.close()
+    
+    # Set up file watcher
+    event_handler = CodeChangeHandler()
+    observer = Observer()
+    observer.schedule(event_handler, path, recursive=True)
+    observer.start()
+    
+    console.print("\n[green]Watch mode started. Monitoring for changes...[/green]")
+    console.print("[dim]Press Ctrl+C to stop[/dim]\n")
+    
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        observer.stop()
+        console.print("\n[yellow]Stopping watch mode...[/yellow]")
+    observer.join()
+    console.print("[green]Watch mode stopped.[/green]")
 
 
 @cli.command()
 @click.argument("query")
 @click.option("--limit", default=5, help="Number of results")
-def search(query, limit):
-    """Search for code"""
+@click.option("--type", "-t", help="Filter by entity type (function, class, method, etc.)")
+@click.option("--file", "-f", help="Filter by file pattern (supports wildcards)")
+@click.option("--regex", "-r", is_flag=True, help="Use regex pattern matching")
+def search(query, limit, type, file, regex):
+    """Search for code entities
+    
+    Examples:
+      autodoc search "parse.*file" --regex
+      autodoc search "analyze" --type function
+      autodoc search "test" --file "*/tests/*"
+    """
     autodoc = SimpleAutodoc()
     autodoc.load()
 
@@ -131,7 +244,7 @@ def search(query, limit):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        results = loop.run_until_complete(autodoc.search(query, limit))
+        results = loop.run_until_complete(autodoc.search(query, limit, type_filter=type, file_filter=file, use_regex=regex))
     finally:
         loop.close()
 
@@ -176,7 +289,7 @@ def check():
                 persist_directory=config.embeddings.get("persist_directory", ".autodoc_chromadb")
             )
             stats = embedder.get_stats()
-            console.print(f"✅ ChromaDB configured")
+            console.print("✅ ChromaDB configured")
             console.print(f"   Model: {config.embeddings.get('chromadb_model', 'all-MiniLM-L6-v2')}")
             console.print(f"   Embeddings: {stats['total_embeddings']}")
             console.print(f"   Directory: {stats['persist_directory']}")
@@ -247,13 +360,14 @@ def init_config():
 @click.option("--backup/--no-backup", default=True, help="Create backup files before modifying (default: true)")
 @click.option("--module-files", is_flag=True, help="Generate module-level enrichment files")
 @click.option("--module-format", type=click.Choice(["markdown", "json"]), default="markdown", help="Format for module enrichment files")
-def enrich(limit, filter, type, force, provider, model, regenerate_embeddings, inline, incremental, backup, module_files, module_format):
+@click.option("--dry-run", is_flag=True, help="Preview changes without modifying files")
+def enrich(limit, filter, type, force, provider, model, regenerate_embeddings, inline, incremental, backup, module_files, module_format, dry_run):
     """Enrich code entities with LLM-generated descriptions"""
     # Run async function
-    asyncio.run(_enrich_async(limit, filter, type, force, provider, model, regenerate_embeddings, inline, incremental, backup, module_files, module_format))
+    asyncio.run(_enrich_async(limit, filter, type, force, provider, model, regenerate_embeddings, inline, incremental, backup, module_files, module_format, dry_run))
 
 
-async def _enrich_async(limit, filter, type, force, provider, model, regenerate_embeddings, inline, incremental, backup, module_files, module_format):
+async def _enrich_async(limit, filter, type, force, provider, model, regenerate_embeddings, inline, incremental, backup, module_files, module_format, dry_run):
     """Async implementation of enrich command"""
     # Load config
     config = AutodocConfig.load()
@@ -270,9 +384,11 @@ async def _enrich_async(limit, filter, type, force, provider, model, regenerate_
         if not (inline or module_files):
             console.print(f"[red]No API key found for {config.llm.provider}[/red]")
             console.print("[yellow]Set via environment variable or .autodoc.yml[/yellow]")
+            console.print(f"[yellow]Example: export {config.llm.provider.upper()}_API_KEY=your-api-key[/yellow]")
             return
         else:
-            console.print(f"[yellow]No API key - will use cached enrichments only[/yellow]")
+            console.print(f"[yellow]No API key found for {config.llm.provider} - will use cached enrichments only[/yellow]")
+            console.print("[dim]To generate new enrichments, set your API key[/dim]")
     
     # Load entities
     autodoc = SimpleAutodoc()
@@ -352,20 +468,26 @@ async def _enrich_async(limit, filter, type, force, provider, model, regenerate_
                         failed_count += len(batch)
     
     # Save cache
-    cache.save_cache()
+    if not dry_run:
+        cache.save_cache()
+    else:
+        console.print("\n[blue]DRY RUN: Enrichment cache was not saved[/blue]")
     
     # Summary
     console.print(f"\n[green]✅ Enriched {enriched_count} entities[/green]")
     if failed_count > 0:
         console.print(f"[red]❌ Failed to enrich {failed_count} entities[/red]")
     
-    console.print(f"\n[blue]Enrichment cached in autodoc_enrichment_cache.json[/blue]")
+    console.print("\n[blue]Enrichment cached in autodoc_enrichment_cache.json[/blue]")
     
     # Handle inline enrichment
     if inline:
-        console.print("\n[yellow]Adding enriched docstrings inline to code files...[/yellow]")
+        if dry_run:
+            console.print("\n[yellow]DRY RUN: Would add enriched docstrings inline to code files...[/yellow]")
+        else:
+            console.print("\n[yellow]Adding enriched docstrings inline to code files...[/yellow]")
         
-        inline_enricher = InlineEnricher(config, backup=backup)
+        inline_enricher = InlineEnricher(config, backup=backup, dry_run=dry_run)
         inline_results = await inline_enricher.enrich_files_inline(
             autodoc.entities, 
             incremental=incremental, 
@@ -375,23 +497,35 @@ async def _enrich_async(limit, filter, type, force, provider, model, regenerate_
         total_updated = sum(r.updated_docstrings for r in inline_results)
         total_errors = sum(len(r.errors) for r in inline_results)
         
-        console.print(f"[green]✅ Updated {total_updated} docstrings across {len(inline_results)} files[/green]")
-        if total_errors > 0:
-            console.print(f"[red]❌ {total_errors} errors occurred during inline enrichment[/red]")
-        
-        console.print("[blue]💡 Enriched docstrings are now available in your code files[/blue]")
+        if dry_run:
+            console.print(f"[green]✅ Would update {total_updated} docstrings across {len(inline_results)} files[/green]")
+            if total_errors > 0:
+                console.print(f"[red]❌ {total_errors} errors would occur during inline enrichment[/red]")
+            console.print("[blue]💡 No files were modified (dry run)[/blue]")
+        else:
+            console.print(f"[green]✅ Updated {total_updated} docstrings across {len(inline_results)} files[/green]")
+            if total_errors > 0:
+                console.print(f"[red]❌ {total_errors} errors occurred during inline enrichment[/red]")
+            console.print("[blue]💡 Enriched docstrings are now available in your code files[/blue]")
     
     # Handle module enrichment files
     if module_files:
-        console.print(f"\n[yellow]Generating module-level enrichment files ({module_format})...[/yellow]")
+        if dry_run:
+            console.print(f"\n[yellow]DRY RUN: Would generate module-level enrichment files ({module_format})...[/yellow]")
+        else:
+            console.print(f"\n[yellow]Generating module-level enrichment files ({module_format})...[/yellow]")
         
-        module_generator = ModuleEnrichmentGenerator(config)
+        module_generator = ModuleEnrichmentGenerator(config, dry_run=dry_run)
         generated_files = await module_generator.generate_module_enrichment_files(
             autodoc.entities, 
             output_format=module_format
         )
         
-        console.print(f"[green]✅ Generated {len(generated_files)} module enrichment files[/green]")
+        if dry_run:
+            console.print(f"[green]✅ Would generate {len(generated_files)} module enrichment files[/green]")
+        else:
+            console.print(f"[green]✅ Generated {len(generated_files)} module enrichment files[/green]")
+        
         for file_path in generated_files[:5]:  # Show first 5
             console.print(f"  📄 {Path(file_path).name}")
         if len(generated_files) > 5:
@@ -1058,7 +1192,7 @@ def serve(host, port, load_cache):
 
         console.print("\n[bold green]🚀 Server starting...[/bold green]")
         console.print(f"[blue]Health check: http://{host}:{port}/health[/blue]")
-        console.print(f"[blue]API docs: Available endpoints at /api/*[/blue]")
+        console.print("[blue]API docs: Available endpoints at /api/*[/blue]")
         console.print("\n[yellow]Available endpoints:[/yellow]")
         console.print("  • GET /health - Health check")
         console.print("  • POST /api/nodes/analyze - Analyze codebase")

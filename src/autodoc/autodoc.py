@@ -12,15 +12,15 @@ from typing import Any, Dict, List, Optional
 from rich.console import Console
 
 from .analyzer import CodeEntity, SimpleASTAnalyzer
+from .chromadb_embedder import ChromaDBEmbedder
+from .config import AutodocConfig
 from .embedder import OpenAIEmbedder
 from .project_analyzer import ProjectAnalyzer
 from .summary import CodeAnalyzer, MarkdownFormatter
-from .chromadb_embedder import ChromaDBEmbedder
-from .config import AutodocConfig
 
 # Optional TypeScript analyzer import
 try:
-    from .typescript_analyzer import TypeScriptAnalyzer, TypeScriptEntity
+    from .typescript_analyzer import TypeScriptAnalyzer
     TYPESCRIPT_AVAILABLE = True
 except ImportError:
     TYPESCRIPT_AVAILABLE = False
@@ -72,18 +72,68 @@ class SimpleAutodoc:
 
         self.entities: List[CodeEntity] = []
 
-    async def analyze_directory(self, path: Path) -> Dict[str, Any]:
+    async def analyze_directory(self, path: Path, incremental: bool = False, exclude_patterns: List[str] = None) -> Dict[str, Any]:
         """Analyze a directory and return analysis summary."""
         console.print(f"[blue]Analyzing directory: {path}[/blue]")
         
+        if exclude_patterns:
+            console.print(f"[yellow]Excluding patterns: {', '.join(exclude_patterns)}[/yellow]")
+        
+        # Load existing entities if incremental
+        existing_entities = []
+        changed_files = set()
+        if incremental and Path("autodoc_cache.json").exists():
+            self.load()
+            existing_entities = self.entities.copy()
+            console.print(f"[yellow]Incremental mode: loaded {len(existing_entities)} existing entities[/yellow]")
+            
+            # Import ChangeDetector for file change detection
+            from .inline_enrichment import ChangeDetector
+            change_detector = ChangeDetector()
+            
+            # Get list of changed files
+            changed_files = change_detector.get_changed_files(existing_entities)
+            if changed_files:
+                console.print(f"[yellow]Found {len(changed_files)} changed files[/yellow]")
+            else:
+                console.print("[green]No files have changed since last analysis[/green]")
+                return self._create_summary(existing_entities)
+        
         # Analyze Python files
-        python_entities = self.analyzer.analyze_directory(path)
-        all_entities = python_entities.copy()  # Create a copy to avoid modifying the original list
+        if incremental and changed_files:
+            # Only analyze changed files
+            python_entities = []
+            for file_path in changed_files:
+                if file_path.endswith('.py'):
+                    file_entities = self.analyzer.analyze_file(Path(file_path))
+                    python_entities.extend(file_entities)
+            
+            # Keep entities from unchanged files
+            unchanged_entities = [e for e in existing_entities if e.file_path not in changed_files]
+            all_entities = unchanged_entities + python_entities
+        else:
+            # Full analysis
+            python_entities = self.analyzer.analyze_directory(path, exclude_patterns)
+            all_entities = python_entities.copy()  # Create a copy to avoid modifying the original list
         
         # Analyze TypeScript files if analyzer is available
         typescript_entities = []
         if self.ts_analyzer and self.ts_analyzer.is_available():
-            typescript_entities = self.ts_analyzer.analyze_directory(path)
+            if incremental and changed_files:
+                # Only analyze changed TypeScript files
+                for file_path in changed_files:
+                    if file_path.endswith(('.ts', '.tsx')):
+                        file_entities = self.ts_analyzer.analyze_file(Path(file_path))
+                        typescript_entities.extend(file_entities)
+                
+                # Add TypeScript entities from unchanged files
+                unchanged_ts_entities = [e for e in existing_entities 
+                                       if e.file_path.endswith(('.ts', '.tsx')) 
+                                       and e.file_path not in changed_files]
+                typescript_entities.extend(unchanged_ts_entities)
+            else:
+                # Full analysis
+                typescript_entities = self.ts_analyzer.analyze_directory(path, exclude_patterns)
             all_entities.extend(typescript_entities)
         
         console.print(f"[green]Found {len(python_entities)} Python entities and {len(typescript_entities)} TypeScript entities[/green]")
@@ -108,7 +158,7 @@ class SimpleAutodoc:
             try:
                 from .enrichment import EnrichmentCache
                 enrichment_cache = EnrichmentCache()
-            except:
+            except Exception:
                 pass
             
             texts = []
@@ -138,6 +188,23 @@ class SimpleAutodoc:
 
         self.entities = all_entities
 
+        # Update change detector with analyzed files
+        if incremental:
+            for file_path in set(e.file_path for e in all_entities):
+                file_entities = [e for e in all_entities if e.file_path == file_path]
+                change_detector.mark_processed(Path(file_path), file_entities)
+
+        return self._create_summary(all_entities, python_entities, typescript_entities)
+    
+    def _create_summary(self, all_entities: List[CodeEntity], 
+                       python_entities: List[CodeEntity] = None, 
+                       typescript_entities: List[CodeEntity] = None) -> Dict[str, Any]:
+        """Create analysis summary from entities."""
+        if python_entities is None:
+            python_entities = [e for e in all_entities if e.file_path.endswith('.py')]
+        if typescript_entities is None:
+            typescript_entities = [e for e in all_entities if e.file_path.endswith(('.ts', '.tsx'))]
+        
         # Calculate language-specific stats
         python_files = len(set(e.file_path for e in python_entities))
         typescript_files = len(set(e.file_path for e in typescript_entities))
@@ -150,7 +217,7 @@ class SimpleAutodoc:
             "methods": len([e for e in all_entities if e.type == "method"]),
             "interfaces": len([e for e in all_entities if e.type == "interface"]),
             "types": len([e for e in all_entities if e.type == "type"]),
-            "has_embeddings": self.embedder is not None,
+            "has_embeddings": self.embedder is not None or self.chromadb_embedder is not None,
             "languages": {
                 "python": {
                     "files": python_files,
@@ -170,17 +237,51 @@ class SimpleAutodoc:
             }
         }
 
-    async def search(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
-        """Search for code entities using embeddings or text matching."""
-        # Use ChromaDB search if available
-        if self.chromadb_embedder:
+    async def search(self, query: str, limit: int = 10, type_filter: str = None, 
+                    file_filter: str = None, use_regex: bool = False) -> List[Dict[str, Any]]:
+        """Search for code entities using embeddings or text matching.
+        
+        Args:
+            query: Search query string
+            limit: Maximum number of results
+            type_filter: Filter by entity type (function, class, method, etc.)
+            file_filter: Filter by file pattern (supports wildcards)
+            use_regex: Use regex pattern matching for query
+        """
+        # If we have entities in memory, use them (for tests and direct usage)
+        if self.entities:
+            # Use in-memory search
+            results = await self.search_async(query, limit, type_filter, file_filter, use_regex)
+            formatted_results = []
+            for entity, similarity in results:
+                entity_dict = asdict(entity)
+                formatted_results.append({
+                    "entity": entity_dict,
+                    "similarity": similarity
+                })
+            return formatted_results
+        
+        # Otherwise use ChromaDB search if available
+        elif self.chromadb_embedder:
             console.print(f"[blue]Searching ChromaDB for: {query}[/blue]")
-            results = await self.chromadb_embedder.search(query, limit=limit)
+            # For ChromaDB, we need to post-filter results
+            results = await self.chromadb_embedder.search(query, limit=limit * 3)  # Get more results for filtering
             
-            # Convert ChromaDB results to expected format
+            # Convert ChromaDB results to expected format and apply filters
             formatted_results = []
             for result in results:
                 entity_data = result["entity"]
+                
+                # Apply type filter
+                if type_filter and entity_data["type"] != type_filter:
+                    continue
+                
+                # Apply file filter
+                if file_filter:
+                    import fnmatch
+                    if not fnmatch.fnmatch(entity_data["file_path"], file_filter):
+                        continue
+                
                 # Load the full entity from cache if needed
                 entity_dict = {
                     "type": entity_data["type"],
@@ -196,37 +297,14 @@ class SimpleAutodoc:
                     "entity": entity_dict,
                     "similarity": result["similarity"]
                 })
+                
+                if len(formatted_results) >= limit:
+                    break
+                    
             return formatted_results
             
-        elif not self.entities:
-            return []
-
-        if self.embedder and all(e.embedding for e in self.entities):
-            console.print(f"[blue]Searching for: {query}[/blue]")
-            query_embedding = await self.embedder.embed(query)
-
-            results = []
-            for entity in self.entities:
-                similarity = sum(a * b for a, b in zip(query_embedding, entity.embedding))
-                results.append((similarity, entity))
-
-            results.sort(key=lambda x: x[0], reverse=True)
-
-            return [
-                {"entity": asdict(entity), "similarity": similarity}
-                for similarity, entity in results[:limit]
-            ]
         else:
-            query_lower = query.lower()
-            results = []
-
-            for entity in self.entities:
-                if query_lower in entity.name.lower():
-                    results.append({"entity": asdict(entity), "similarity": 1.0})
-                elif entity.docstring and query_lower in entity.docstring.lower():
-                    results.append({"entity": asdict(entity), "similarity": 0.5})
-
-            return results[:limit]
+            return []
 
     async def analyze_directory_async(self, path: Path, save: bool = True) -> Dict[str, Any]:
         """Async version of analyze_directory."""
@@ -264,35 +342,75 @@ class SimpleAutodoc:
             "entities_found": len(entities),
             "functions": len([e for e in entities if e.type == "function"]),
             "classes": len([e for e in entities if e.type == "class"]),
-            "has_embeddings": self.embedder is not None,
+            "has_embeddings": self.embedder is not None or self.chromadb_embedder is not None,
         }
 
-    async def search_async(self, query: str, limit: int = 10) -> List[tuple]:
-        """Async version of search that returns (entity, score) tuples."""
+    async def search_async(self, query: str, limit: int = 10, type_filter: str = None,
+                          file_filter: str = None, use_regex: bool = False) -> List[tuple]:
+        """Async version of search that returns (entity, score) tuples.
+        
+        Args:
+            query: Search query string
+            limit: Maximum number of results
+            type_filter: Filter by entity type (function, class, method, etc.)
+            file_filter: Filter by file pattern (supports wildcards)
+            use_regex: Use regex pattern matching for query
+        """
         if not self.entities:
             return []
 
-        if self.embedder and all(e.embedding for e in self.entities):
+        # Apply type and file filters first
+        filtered_entities = self.entities
+        
+        if type_filter:
+            filtered_entities = [e for e in filtered_entities if e.type == type_filter]
+        
+        if file_filter:
+            import fnmatch
+            filtered_entities = [e for e in filtered_entities 
+                               if fnmatch.fnmatch(e.file_path, file_filter)]
+        
+        if not filtered_entities:
+            return []
+
+        if self.embedder and all(e.embedding for e in filtered_entities):
             console.print(f"[blue]Searching for: {query}[/blue]")
             query_embedding = await self.embedder.embed(query)
 
             results = []
-            for entity in self.entities:
+            for entity in filtered_entities:
                 similarity = sum(a * b for a, b in zip(query_embedding, entity.embedding))
                 results.append((entity, similarity))
 
             results.sort(key=lambda x: x[1], reverse=True)
             return results[:limit]
         else:
-            query_lower = query.lower()
+            # Text-based search with optional regex
             results = []
+            
+            if use_regex:
+                import re
+                try:
+                    pattern = re.compile(query, re.IGNORECASE)
+                except re.error:
+                    console.print(f"[red]Invalid regex pattern: {query}[/red]")
+                    return []
+                
+                for entity in filtered_entities:
+                    if pattern.search(entity.name):
+                        results.append((entity, 1.0))
+                    elif entity.docstring and pattern.search(entity.docstring):
+                        results.append((entity, 0.5))
+            else:
+                query_lower = query.lower()
+                for entity in filtered_entities:
+                    if query_lower in entity.name.lower():
+                        results.append((entity, 1.0))
+                    elif entity.docstring and query_lower in entity.docstring.lower():
+                        results.append((entity, 0.5))
 
-            for entity in self.entities:
-                if query_lower in entity.name.lower():
-                    results.append((entity, 1.0))
-                elif entity.docstring and query_lower in entity.docstring.lower():
-                    results.append((entity, 0.5))
-
+            # Sort by score and limit results
+            results.sort(key=lambda x: x[1], reverse=True)
             return results[:limit]
 
     def save(self, path: str = "autodoc_cache.json"):
