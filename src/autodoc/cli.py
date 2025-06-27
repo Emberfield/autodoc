@@ -460,6 +460,161 @@ def import_(input_file, overwrite):
 
 
 @cli.command()
+@click.option("--output", "-o", help="Output file for test mapping (default: stdout)")
+@click.option("--format", "-f", type=click.Choice(["table", "json", "markdown"]), default="table", help="Output format")
+def test_map(output, format):
+    """Map test functions to the code they test
+    
+    Analyzes test files to find which functions are being tested,
+    helping identify test coverage gaps.
+    """
+    import json
+    from pathlib import Path
+    
+    autodoc = SimpleAutodoc()
+    autodoc.load()
+    
+    if not autodoc.entities:
+        console.print("[red]No analyzed code found. Run 'autodoc analyze' first.[/red]")
+        return
+    
+    # Find test functions and the functions they test
+    test_mapping = {}
+    tested_functions = set()
+    
+    # Get all test functions
+    test_functions = [e for e in autodoc.entities if e.file_path.find('test') != -1 and e.type == 'function']
+    
+    for test_func in test_functions:
+        if not test_func.code:
+            continue
+            
+        # Simple heuristic: look for function calls in test code
+        # This is a basic implementation - could be enhanced with AST analysis
+        tested = []
+        
+        # Look for direct function calls
+        import re
+        # Match function calls like func_name( or self.func_name(
+        call_pattern = r'(?:self\.)?\b(\w+)\s*\('
+        calls = re.findall(call_pattern, test_func.code)
+        
+        # Match against known functions
+        for call in calls:
+            for entity in autodoc.entities:
+                if (entity.type == 'function' and 
+                    entity.name == call and 
+                    entity.file_path.find('test') == -1):
+                    tested.append({
+                        'name': entity.name,
+                        'file': entity.file_path,
+                        'line': entity.line_number
+                    })
+                    tested_functions.add(f"{entity.file_path}:{entity.name}")
+        
+        if tested:
+            test_mapping[f"{test_func.file_path}::{test_func.name}"] = tested
+    
+    # Find untested functions
+    all_functions = [e for e in autodoc.entities 
+                    if e.type == 'function' and e.file_path.find('test') == -1]
+    untested = []
+    for func in all_functions:
+        func_id = f"{func.file_path}:{func.name}"
+        if func_id not in tested_functions and not func.name.startswith('_'):
+            untested.append({
+                'name': func.name,
+                'file': func.file_path,
+                'line': func.line_number
+            })
+    
+    # Format output
+    if format == "json":
+        result = {
+            'test_mapping': test_mapping,
+            'untested_functions': untested,
+            'summary': {
+                'total_functions': len(all_functions),
+                'tested_functions': len(tested_functions),
+                'untested_functions': len(untested),
+                'coverage_percentage': (len(tested_functions) / len(all_functions) * 100) if all_functions else 0
+            }
+        }
+        output_text = json.dumps(result, indent=2)
+        
+    elif format == "markdown":
+        lines = ["# Test Coverage Mapping\n"]
+        lines.append(f"**Total Functions:** {len(all_functions)}")
+        lines.append(f"**Tested:** {len(tested_functions)}")
+        lines.append(f"**Untested:** {len(untested)}")
+        lines.append(f"**Coverage:** {len(tested_functions) / len(all_functions) * 100:.1f}%\n" if all_functions else "**Coverage:** 0%\n")
+        
+        lines.append("## Test Mapping\n")
+        for test, functions in test_mapping.items():
+            lines.append(f"### {test}")
+            for func in functions:
+                lines.append(f"- `{func['name']}` in {Path(func['file']).name}:{func['line']}")
+            lines.append("")
+        
+        if untested:
+            lines.append("## Untested Functions\n")
+            for func in untested[:20]:  # Show first 20
+                lines.append(f"- `{func['name']}` in {Path(func['file']).name}:{func['line']}")
+            if len(untested) > 20:
+                lines.append(f"\n... and {len(untested) - 20} more")
+        
+        output_text = "\n".join(lines)
+        
+    else:  # table format
+        # Summary
+        console.print("\n[bold]Test Coverage Summary:[/bold]")
+        console.print(f"  Total functions: {len(all_functions)}")
+        console.print(f"  Tested: [green]{len(tested_functions)}[/green]")
+        console.print(f"  Untested: [red]{len(untested)}[/red]")
+        if all_functions:
+            console.print(f"  Coverage: {len(tested_functions) / len(all_functions) * 100:.1f}%")
+        
+        # Show some test mappings
+        if test_mapping:
+            console.print("\n[bold]Sample Test Mappings:[/bold]")
+            shown = 0
+            for test, functions in list(test_mapping.items())[:5]:
+                test_name = test.split('::')[1]
+                console.print(f"\n[cyan]{test_name}[/cyan] tests:")
+                for func in functions[:3]:
+                    console.print(f"  → {func['name']} ({Path(func['file']).name})")
+                if len(functions) > 3:
+                    console.print(f"  ... and {len(functions) - 3} more")
+                shown += 1
+        
+        # Show untested functions
+        if untested:
+            console.print(f"\n[bold]Untested Functions ({len(untested)} total):[/bold]")
+            table = Table()
+            table.add_column("Function", style="red")
+            table.add_column("File", style="dim")
+            table.add_column("Line", style="dim")
+            
+            for func in untested[:10]:
+                table.add_row(
+                    func['name'],
+                    Path(func['file']).name,
+                    str(func['line'])
+                )
+            console.print(table)
+            if len(untested) > 10:
+                console.print(f"[dim]... and {len(untested) - 10} more[/dim]")
+        
+        output_text = None
+    
+    # Write to file if specified
+    if output and output_text:
+        with open(output, 'w') as f:
+            f.write(output_text)
+        console.print(f"\n[green]Output written to {output}[/green]")
+
+
+@cli.command()
 def check():
     """Check dependencies and configuration"""
     console.print("[bold]Autodoc Status:[/bold]\n")
