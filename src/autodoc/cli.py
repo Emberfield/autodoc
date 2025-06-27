@@ -108,7 +108,7 @@ def _analyze_with_rust(autodoc, path, exclude_patterns):
     from .analyzer import CodeEntity
     
     # Get all entities from Rust
-    rust_entities = autodoc_core.analyze_directory_rust(str(path))
+    rust_entities = autodoc_core.analyze_directory_rust(str(path), list(exclude_patterns) if exclude_patterns else None)
     
     # Convert Rust entities to our CodeEntity format
     entities = []

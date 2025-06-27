@@ -80,13 +80,23 @@ impl CodeEntity {
             api_decorators.iter().any(|api_d| d.to_lowercase().contains(api_d))
         });
         
-        // Extract endpoint path from decorators if possible
+        // Extract endpoint path and methods from decorators if possible
         if self.is_api_endpoint {
             for decorator in &self.decorators {
                 if let Some(path) = extract_path_from_decorator(decorator) {
                     self.endpoint_path = Some(path);
-                    break;
                 }
+                
+                // Extract HTTP methods
+                let methods = extract_http_methods_from_decorator(decorator);
+                if !methods.is_empty() {
+                    self.http_methods = methods;
+                }
+            }
+            
+            // If no methods specified, default to GET
+            if self.http_methods.is_empty() {
+                self.http_methods = vec!["GET".to_string()];
             }
         }
     }
@@ -100,6 +110,37 @@ fn extract_path_from_decorator(decorator: &str) -> Option<String> {
     re.captures(decorator)
         .and_then(|cap| cap.get(1))
         .map(|m| m.as_str().to_string())
+}
+
+fn extract_http_methods_from_decorator(decorator: &str) -> Vec<String> {
+    use regex::Regex;
+    let mut methods = Vec::new();
+    
+    // Check for specific method decorators like @app.get, @app.post
+    let method_decorators = ["get", "post", "put", "delete", "patch"];
+    for method in &method_decorators {
+        if decorator.to_lowercase().contains(&format!(".{}", method)) {
+            methods.push(method.to_uppercase());
+            return methods;
+        }
+    }
+    
+    // Extract methods from methods=[...] parameter
+    let re = Regex::new(r#"methods\s*=\s*\[([^\]]+)\]"#).ok();
+    if let Some(re) = re {
+        if let Some(captures) = re.captures(decorator) {
+            if let Some(methods_str) = captures.get(1) {
+                for method in methods_str.as_str().split(',') {
+                    let method = method.trim().trim_matches('"').trim_matches('\'');
+                    if !method.is_empty() {
+                        methods.push(method.to_uppercase());
+                    }
+                }
+            }
+        }
+    }
+    
+    methods
 }
 
 #[cfg(test)]

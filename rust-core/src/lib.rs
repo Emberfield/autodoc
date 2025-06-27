@@ -44,6 +44,16 @@ pub struct PyCodeEntity {
     pub parameters: Vec<String>,
     #[pyo3(get, set)]
     pub return_type: Option<String>,
+    #[pyo3(get, set)]
+    pub is_internal: bool,
+    #[pyo3(get, set)]
+    pub is_api_endpoint: bool,
+    #[pyo3(get, set)]
+    pub route_path: Option<String>,
+    #[pyo3(get, set)]
+    pub http_methods: Vec<String>,
+    #[pyo3(get, set)]
+    pub complexity_score: u32,
 }
 
 #[pymethods]
@@ -66,6 +76,11 @@ impl PyCodeEntity {
             decorators: Vec::new(),
             parameters: Vec::new(),
             return_type: None,
+            is_internal: false,
+            is_api_endpoint: false,
+            route_path: None,
+            http_methods: Vec::new(),
+            complexity_score: 1,
         }
     }
 
@@ -81,6 +96,11 @@ impl PyCodeEntity {
         dict.set_item("decorators", &self.decorators)?;
         dict.set_item("parameters", &self.parameters)?;
         dict.set_item("return_type", &self.return_type)?;
+        dict.set_item("is_internal", &self.is_internal)?;
+        dict.set_item("is_api_endpoint", &self.is_api_endpoint)?;
+        dict.set_item("route_path", &self.route_path)?;
+        dict.set_item("http_methods", &self.http_methods)?;
+        dict.set_item("complexity_score", &self.complexity_score)?;
         Ok(dict.into())
     }
 }
@@ -117,8 +137,16 @@ impl PyRustAnalyzer {
 
 /// Direct function for analyzing a directory
 #[pyfunction]
-fn analyze_directory_rust(path: &str) -> PyResult<Vec<PyCodeEntity>> {
-    let analyzer = RustAnalyzer::new();
+#[pyo3(signature = (path, exclude_patterns=None))]
+fn analyze_directory_rust(path: &str, exclude_patterns: Option<Vec<String>>) -> PyResult<Vec<PyCodeEntity>> {
+    let mut analyzer = RustAnalyzer::new();
+    
+    // Add custom exclude patterns if provided
+    if let Some(patterns) = exclude_patterns {
+        let pattern_refs: Vec<&str> = patterns.iter().map(|s| s.as_str()).collect();
+        analyzer = analyzer.with_excludes(pattern_refs);
+    }
+    
     let entities = analyzer.analyze_directory(Path::new(path))
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
     
@@ -148,6 +176,11 @@ impl From<CodeEntity> for PyCodeEntity {
             decorators: entity.decorators,
             parameters: entity.parameters,
             return_type: entity.return_type,
+            is_internal: entity.is_internal,
+            is_api_endpoint: entity.is_api_endpoint,
+            route_path: entity.endpoint_path,
+            http_methods: entity.http_methods,
+            complexity_score: entity.complexity_score,
         }
     }
 }
