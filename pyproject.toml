@@ -25,6 +25,7 @@ dependencies = [
     "tree-sitter-languages>=1.10.0",
     "chromadb>=0.4.0",
     "sentence-transformers>=2.2.0",
+    "watchdog>=3.0.0",
 ]
 
 [project.optional-dependencies]
@@ -60,6 +61,7 @@ dev-dependencies = [
     "ipython>=8.18.0",
     "twine>=6.1.0",
     "keyrings-google-artifactregistry-auth>=1.1.2",
+    "maturin>=1.0.0",
 ]
 
 [tool.uv.sources]

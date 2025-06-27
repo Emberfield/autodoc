@@ -64,7 +64,8 @@ def cli():
 @click.option("--incremental", is_flag=True, help="Only analyze changed files")
 @click.option("--exclude", "-e", multiple=True, help="Patterns to exclude (can be used multiple times)")
 @click.option("--watch", "-w", is_flag=True, help="Watch for changes and re-analyze automatically")
-def analyze(path, save, incremental, exclude, watch):
+@click.option("--rust", is_flag=True, help="Use high-performance Rust analyzer (Python only)")
+def analyze(path, save, incremental, exclude, watch, rust):
     """Analyze a codebase"""
     autodoc = SimpleAutodoc()
 
@@ -74,20 +75,103 @@ def analyze(path, save, incremental, exclude, watch):
         _run_watch_mode(autodoc, path, save, exclude)
     else:
         # Single analysis
-        # Run async function in event loop
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            summary = loop.run_until_complete(
-                autodoc.analyze_directory(Path(path), incremental=incremental, exclude_patterns=list(exclude))
-            )
-        finally:
-            loop.close()
+        if rust:
+            # Use Rust analyzer for Python files
+            console.print("[green]Using high-performance Rust analyzer...[/green]")
+            try:
+                import autodoc_core
+                summary = _analyze_with_rust(autodoc, path, exclude)
+            except ImportError:
+                console.print("[red]Rust core not available. Install with: make build-rust[/red]")
+                return
+        else:
+            # Use regular Python analyzer
+            # Run async function in event loop
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                summary = loop.run_until_complete(
+                    autodoc.analyze_directory(Path(path), incremental=incremental, exclude_patterns=list(exclude))
+                )
+            finally:
+                loop.close()
         
         _display_summary(summary)
         
         if save:
             autodoc.save()
+
+
+def _analyze_with_rust(autodoc, path, exclude_patterns):
+    """Analyze using Rust core."""
+    import autodoc_core
+    from .analyzer import CodeEntity
+    
+    # Get all entities from Rust
+    rust_entities = autodoc_core.analyze_directory_rust(str(path))
+    
+    # Convert Rust entities to our CodeEntity format
+    entities = []
+    for rust_entity in rust_entities:
+        # Convert parameters from list of strings to list of dicts
+        params = []
+        for param_name in rust_entity.parameters:
+            params.append({'name': param_name, 'type': None})
+        
+        entity = CodeEntity(
+            type=rust_entity.entity_type,
+            name=rust_entity.name,
+            file_path=rust_entity.file_path,
+            line_number=rust_entity.line_number,
+            docstring=rust_entity.docstring,
+            code=rust_entity.code,
+            decorators=rust_entity.decorators,
+            parameters=params,
+        )
+        
+        # Add async info to decorators if needed
+        if rust_entity.is_async:
+            entity.decorators.append('async')
+            
+        # Store return type in response_type field
+        if rust_entity.return_type:
+            entity.response_type = rust_entity.return_type
+            
+        entities.append(entity)
+    
+    # Store entities in autodoc
+    autodoc.entities = entities
+    
+    # Calculate summary
+    summary = {
+        'files_analyzed': len(set(e.file_path for e in entities)),
+        'total_entities': len(entities),
+        'functions': sum(1 for e in entities if e.type == 'function'),
+        'classes': sum(1 for e in entities if e.type == 'class'),
+        'methods': sum(1 for e in entities if e.type == 'method'),
+        'interfaces': 0,
+        'types': 0,
+        'has_embeddings': False,
+        'languages': {
+            'python': {
+                'files': len(set(e.file_path for e in entities)),
+                'entities': len(entities),
+                'functions': sum(1 for e in entities if e.type == 'function'),
+                'classes': sum(1 for e in entities if e.type == 'class'),
+            },
+            'typescript': {
+                'files': 0,
+                'entities': 0,
+                'functions': 0,
+                'classes': 0,
+                'methods': 0,
+                'interfaces': 0,
+                'types': 0,
+            }
+        }
+    }
+    
+    return summary
 
 
 def _display_summary(summary):

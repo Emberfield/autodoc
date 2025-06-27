@@ -5,7 +5,7 @@ Makefile parser for extracting targets and their descriptions.
 
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List
 
 
 class MakefileParser:

@@ -6,7 +6,7 @@ Uses tree-sitter for fast and accurate parsing.
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional
 
 from rich.console import Console
 
@@ -16,7 +16,7 @@ console = Console()
 
 # Optional tree-sitter import
 try:
-    from tree_sitter_languages import get_language, get_parser
+    import tree_sitter_languages  # noqa: F401
     
     TREE_SITTER_AVAILABLE = True
 except ImportError:
@@ -90,13 +90,10 @@ class TypeScriptAnalyzer:
             self._use_fallback_parser()
             return
         
-        try:
-            self.language = get_language('typescript')
-            self.parser = get_parser('typescript')
-            console.print("[green]TypeScript parser initialized successfully[/green]")
-        except Exception as e:
-            console.print(f"[yellow]Warning: TypeScript tree-sitter parser failed ({e}). Using fallback parser.[/yellow]")
-            self._use_fallback_parser()
+        # For now, just use the fallback parser due to tree-sitter compatibility issues
+        # TODO: Fix tree-sitter-languages integration when library is updated
+        console.print("[yellow]Warning: TypeScript tree-sitter parser temporarily disabled due to compatibility issues. Using fallback parser.[/yellow]")
+        self._use_fallback_parser()
     
     def _use_fallback_parser(self):
         """Use regex-based fallback parser when tree-sitter is not available."""
@@ -138,7 +135,7 @@ class TypeScriptAnalyzer:
         
         return entities
     
-    def analyze_directory(self, path: Path) -> List[TypeScriptEntity]:
+    def analyze_directory(self, path: Path, exclude_patterns: List[str] = None) -> List[TypeScriptEntity]:
         """Analyze all TypeScript files in a directory."""
         if not self.is_available():
             console.print("[red]TypeScript parsing not available[/red]")
@@ -146,15 +143,29 @@ class TypeScriptAnalyzer:
         
         console.print(f"[blue]Analyzing TypeScript files in {path}...[/blue]")
         
+        # Default exclude patterns
+        default_excludes = ['node_modules', '.git', 'dist', 'build', 'coverage', 
+                           '.next', '.nuxt', '.output', '__pycache__']
+        
         # Find TypeScript files
         ts_files = list(path.rglob("*.ts")) + list(path.rglob("*.tsx"))
-        ts_files = [
-            f for f in ts_files
-            if not any(skip in f.parts for skip in [
-                'node_modules', '.git', 'dist', 'build', 'coverage', 
-                '.next', '.nuxt', '.output', '__pycache__'
-            ])
-        ]
+        
+        # Filter files
+        filtered_files = []
+        for f in ts_files:
+            # Skip if in default exclude directories
+            if any(skip in f.parts for skip in default_excludes):
+                continue
+            
+            # Skip if matches exclude patterns
+            if exclude_patterns:
+                relative_path = f.relative_to(path)
+                if any(relative_path.match(pattern) for pattern in exclude_patterns):
+                    continue
+            
+            filtered_files.append(f)
+        
+        ts_files = filtered_files
         
         console.print(f"Found {len(ts_files)} TypeScript files")
         
@@ -696,6 +707,7 @@ class TypeScriptAnalyzer:
         
         # Check if it's a wrapper around external services
         name_lower = entity.name.lower()
+        file_path_lower = entity.file_path.lower()
         if any(service in name_lower for service in ['client', 'adapter']) and any(ext in name_lower for ext in ['external', 'third_party', 'api']):
             # Check for external imports or file paths to confirm external classification
             if any(pattern in file_path_lower for pattern in ['clients', 'adapters', 'external', 'integrations', 'services/external']):

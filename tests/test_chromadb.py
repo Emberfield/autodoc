@@ -3,14 +3,14 @@
 Tests for ChromaDB embedding functionality.
 """
 
-import pytest
-import tempfile
 import shutil
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+import tempfile
+from unittest.mock import MagicMock, patch
 
-from autodoc.chromadb_embedder import ChromaDBEmbedder
+import pytest
+
 from autodoc.analyzer import CodeEntity
+from autodoc.chromadb_embedder import ChromaDBEmbedder
 
 
 @pytest.fixture
