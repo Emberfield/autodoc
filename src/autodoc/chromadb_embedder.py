@@ -6,10 +6,11 @@ ChromaDB-based embedding storage and search for autodoc.
 import hashlib
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
+
 import chromadb
-from chromadb.utils import embedding_functions
 from chromadb.config import Settings
+from chromadb.utils import embedding_functions
 
 from .analyzer import CodeEntity
 from .enrichment import EnrichmentCache
@@ -52,7 +53,7 @@ class ChromaDBEmbedder:
                 name=collection_name,
                 embedding_function=self.embedding_function
             )
-        except:
+        except Exception:
             self.collection = self.client.create_collection(
                 name=collection_name,
                 embedding_function=self.embedding_function,
@@ -119,7 +120,7 @@ class ChromaDBEmbedder:
         if use_enrichment:
             try:
                 enrichment_cache = EnrichmentCache()
-            except:
+            except Exception:
                 pass
         
         embedded_count = 0

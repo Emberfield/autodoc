@@ -7,10 +7,11 @@ import json
 import logging
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
-from aiohttp import web, web_response
-from aiohttp_cors import CorsConfig, ResourceOptions, setup as setup_cors
+from aiohttp import web
+from aiohttp_cors import ResourceOptions
+from aiohttp_cors import setup as setup_cors
 
 from .analyzer import CodeEntity, EnhancedASTAnalyzer
 from .autodoc import SimpleAutodoc

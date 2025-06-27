@@ -4,10 +4,11 @@ Configuration management for autodoc.
 """
 
 import os
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
+
 import yaml
-from dataclasses import dataclass, field
 
 
 @dataclass

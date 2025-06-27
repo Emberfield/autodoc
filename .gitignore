@@ -20,3 +20,8 @@ autodoc_enrichment_cache.json
 
 # Keep enrichment files - they're valuable documentation
 # src/autodoc/*.enrichment.md
+
+# Export files
+team_export.zip
+autodoc_export.zip
+*.export.zip

@@ -3,14 +3,14 @@
 LLM-powered code enrichment for autodoc.
 """
 
-import asyncio
 import json
-from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
+
 import aiohttp
 
 from .analyzer import CodeEntity
-from .config import AutodocConfig, LLMConfig
+from .config import AutodocConfig
 
 
 @dataclass
@@ -54,7 +54,10 @@ class LLMEnricher:
             
         api_key = self.llm_config.get_api_key()
         if not api_key:
-            print(f"Warning: No API key found for {self.llm_config.provider}. Skipping enrichment.")
+            from rich.console import Console
+            console = Console()
+            console.print(f"[yellow]Warning: No API key found for {self.llm_config.provider}. Skipping enrichment.[/yellow]")
+            console.print(f"[dim]To generate enrichments, set {self.llm_config.provider.upper()}_API_KEY environment variable[/dim]")
             return []
             
         enriched = []

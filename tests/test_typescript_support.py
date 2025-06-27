@@ -3,13 +3,12 @@ Comprehensive tests for TypeScript support in Autodoc.
 Tests both Python and TypeScript functionality to ensure compatibility.
 """
 
-import pytest
-import asyncio
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from autodoc.autodoc import SimpleAutodoc, TYPESCRIPT_AVAILABLE
-from autodoc.analyzer import SimpleASTAnalyzer, CodeEntity
+import pytest
+
+from autodoc.autodoc import TYPESCRIPT_AVAILABLE, SimpleAutodoc
 
 
 class TestTypeScriptSupport:
@@ -310,7 +309,7 @@ export class UserService {
         ]
         
         # Simulate analysis results
-        all_entities = python_entities + typescript_entities
+        # all_entities = python_entities + typescript_entities  # Not used in test
         
         # Calculate stats manually (similar to what autodoc does)
         python_files = len(set(e.file_path for e in python_entities))

@@ -1,0 +1,52 @@
+[package]
+name = "autodoc-core"
+version = "0.1.0"
+edition = "2021"
+authors = ["Autodoc Team"]
+description = "High-performance core engine for Autodoc code analysis"
+
+[lib]
+name = "autodoc_core"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Python AST parsing
+rustpython-parser = "0.3"
+rustpython-ast = "0.3"
+
+# Python bindings
+pyo3 = { version = "0.22", features = ["extension-module"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Parallel processing
+rayon = "1.8"
+
+# File handling
+walkdir = "2.4"
+glob = "0.3"
+
+# Regex
+regex = "1.10"
+
+[dev-dependencies]
+criterion = "0.5"
+tempfile = "3.8"
+
+[[bench]]
+name = "parser_benchmark"
+harness = false
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3

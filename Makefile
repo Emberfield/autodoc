@@ -118,6 +118,50 @@ test-coverage: ## Run tests with coverage report
 	uv run pytest --cov=src/autodoc --cov-report=html --cov-report=term tests/
 	@echo "$(GREEN)✓ Coverage report generated$(NC)"
 
+# ========================================
+# Rust Core Targets
+# ========================================
+
+build-rust: ## Build the high-performance Rust core
+	@echo "$(YELLOW)Building Rust core...$(NC)"
+	@cd rust-core && source "$$HOME/.cargo/env" && uv run maturin develop --release
+
+install-rust: build-rust ## Build and install Rust core
+	@echo "$(YELLOW)Installing Rust core...$(NC)"
+	@pip install dist/autodoc_core-*.whl
+	@echo "$(GREEN)✓ Rust core installed$(NC)"
+
+test-rust: ## Test Rust core
+	@echo "$(YELLOW)Testing Rust core...$(NC)"
+	@cd rust-core && cargo test
+	@echo "$(GREEN)✓ Rust tests completed$(NC)"
+
+benchmark: ## Run performance benchmark (Python vs Rust)
+	@echo "$(YELLOW)Running performance benchmark...$(NC)"
+	@uv run python -m autodoc.rust_analyzer
+	@echo "$(GREEN)✓ Benchmark completed$(NC)"
+
+clean-rust: ## Clean Rust build artifacts
+	@echo "$(YELLOW)Cleaning Rust artifacts...$(NC)"
+	@cd rust-core && cargo clean
+	@rm -rf rust-core/target
+	@echo "$(GREEN)✓ Rust artifacts cleaned$(NC)"".
+
+dev-rust: ## Development mode with Rust core
+	@echo "$(YELLOW)Setting up development with Rust core...$(NC)"
+	@cd rust-core && maturin develop
+	@echo "$(GREEN)✓ Rust core available in development mode$(NC)"".
+
+check-rust: ## Check if Rust is installed
+	@echo "$(YELLOW)Checking Rust installation...$(NC)"
+	@if command -v rustc >/dev/null 2>&1; then \
+		echo "$(GREEN)✅ Rust is installed: $$(rustc --version)$(NC)"; \
+		echo "$(GREEN)✅ Cargo is installed: $$(cargo --version)$(NC)"; \
+	else \
+		echo "$(RED)❌ Rust is not installed$(NC)"; \
+		echo "$(YELLOW)Install Rust from: https://rustup.rs$(NC)"; \
+	fi
+
 lint: ## Run code linting
 	@echo "$(YELLOW)Running linter...$(NC)"
 	uv run ruff check . || (echo "$(RED)Linting failed$(NC)" && exit 1)
