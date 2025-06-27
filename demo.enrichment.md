@@ -1,7 +1,7 @@
 # demo - Module Enrichment
 
-**File:** `demo.py`
-**Last Updated:** 2025-06-27T07:47:21.514674
+**File:** `./demo.py`
+**Last Updated:** 2025-06-27T16:13:59.050904
 **Total Entities:** 1
 **Functions:** 1
 **Classes:** 0

@@ -738,7 +738,7 @@ Examples:
                         lines.append(f"> {cls.docstring.split(chr(10))[0]}")  # First line of docstring
                     
                     # Show class methods
-                    methods = [e for e in all_entities if e.type == "method" and e.parent_class == cls.name]
+                    methods = [e for e in all_entities if e.type == "method" and getattr(e, 'parent_class', None) == cls.name]
                     if methods:
                         lines.append("")
                         lines.append("**Methods:**")

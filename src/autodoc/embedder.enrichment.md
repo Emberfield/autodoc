@@ -1,24 +1,14 @@
 # embedder - Module Enrichment
 
-**File:** `src/autodoc/embedder.py`
-**Last Updated:** 2025-06-27T07:47:21.520893
+**File:** `./src/autodoc/embedder.py`
+**Last Updated:** 2025-06-27T16:13:59.053186
 **Total Entities:** 4
-**Functions:** 3
+**Functions:** 0
 **Classes:** 1
 
 ## Module Entities
 
 *No enrichments available yet. Run `autodoc enrich` to add detailed descriptions.*
-
-### Functions
-
-#### `__init__` (line 13)
-
-#### `embed` (line 17)
-> Generate embedding for a single text.
-
-#### `embed_batch` (line 27)
-> Generate embeddings for multiple texts.
 
 ### Classes
 
