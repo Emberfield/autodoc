@@ -3,20 +3,21 @@
 Tests for inline enrichment functionality.
 """
 
-import pytest
-import tempfile
 import shutil
+import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from autodoc.inline_enrichment import (
-    InlineEnricher, 
-    ModuleEnrichmentGenerator, 
-    ChangeDetector,
-    InlineEnrichmentResult
-)
+import pytest
+
 from autodoc.analyzer import CodeEntity
 from autodoc.config import AutodocConfig
+from autodoc.inline_enrichment import (
+    ChangeDetector,
+    InlineEnricher,
+    InlineEnrichmentResult,
+    ModuleEnrichmentGenerator,
+)
 
 
 @pytest.fixture
@@ -267,7 +268,7 @@ class TestModuleEnrichmentGenerator:
             }
         }]
         
-        markdown = generator._generate_markdown_enrichment(overview, enriched_entities)
+        markdown = generator._generate_markdown_enrichment(overview, enriched_entities, sample_entities)
         
         assert "# test_module - Module Enrichment" in markdown
         assert "**File:** `/test/path.py`" in markdown
@@ -289,7 +290,7 @@ class TestModuleEnrichmentGenerator:
             "enrichment": {"description": "Test function"}
         }]
         
-        json_content = generator._generate_json_enrichment(overview, enriched_entities)
+        json_content = generator._generate_json_enrichment(overview, enriched_entities, sample_entities)
         
         import json
         data = json.loads(json_content)
