@@ -11,7 +11,16 @@ def main():
     """Build the Rust extension module."""
     print("Building Rust core with maturin...")
     
+    # Check if Rust is available
+    try:
+        subprocess.run(["rustc", "--version"], check=True, capture_output=True)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        print("Error: Rust is not installed or not in PATH.")
+        print("Please install Rust from: https://rustup.rs/")
+        sys.exit(1)
+    
     # Ensure maturin is installed
+    # Note: uv pip install is the correct command for uv package manager
     print("Installing maturin...")
     subprocess.run(["uv", "pip", "install", "maturin"], check=True)
     

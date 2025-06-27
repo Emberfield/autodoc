@@ -28,7 +28,7 @@ rust-core/
 ### Prerequisites
 
 1. Install Rust: https://rustup.rs
-2. Install maturin: `pip install maturin`
+2. The build script will automatically install maturin using `uv pip install`
 
 ### Build Commands
 
