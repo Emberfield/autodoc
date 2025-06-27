@@ -7,7 +7,7 @@ import os
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from rich.console import Console
 
@@ -15,6 +15,8 @@ from .analyzer import CodeEntity, SimpleASTAnalyzer
 from .embedder import OpenAIEmbedder
 from .project_analyzer import ProjectAnalyzer
 from .summary import CodeAnalyzer, MarkdownFormatter
+from .chromadb_embedder import ChromaDBEmbedder
+from .config import AutodocConfig
 
 # Optional TypeScript analyzer import
 try:
@@ -29,10 +31,12 @@ console = Console()
 class SimpleAutodoc:
     """Main class for analyzing codebases and generating documentation."""
 
-    def __init__(self):
+    def __init__(self, config: Optional[AutodocConfig] = None):
+        self.config = config or AutodocConfig.load()
         self.analyzer = SimpleASTAnalyzer()
         self.ts_analyzer = None
         self.embedder = None
+        self.chromadb_embedder = None
 
         # Initialize TypeScript analyzer if available
         if TYPESCRIPT_AVAILABLE:
@@ -42,11 +46,29 @@ class SimpleAutodoc:
         else:
             console.print("[yellow]TypeScript analyzer not available[/yellow]")
 
-        api_key = os.getenv("OPENAI_API_KEY")
-        if api_key and api_key != "sk-...":
-            self.embedder = OpenAIEmbedder(api_key)
+        # Initialize embedder based on config
+        embedding_provider = self.config.embeddings.get("provider", "openai")
+        
+        if embedding_provider == "chromadb":
+            # Use ChromaDB for local embeddings
+            try:
+                self.chromadb_embedder = ChromaDBEmbedder(
+                    collection_name="autodoc_embeddings",
+                    persist_directory=self.config.embeddings.get("persist_directory", ".autodoc_chromadb"),
+                    embedding_model=self.config.embeddings.get("chromadb_model", "all-MiniLM-L6-v2")
+                )
+                console.print(f"[green]Using ChromaDB for embeddings (model: {self.config.embeddings.get('chromadb_model')})[/green]")
+            except Exception as e:
+                console.print(f"[red]Failed to initialize ChromaDB: {e}[/red]")
+                console.print("[yellow]Embeddings disabled[/yellow]")
         else:
-            console.print("[yellow]No OpenAI API key found - embeddings disabled[/yellow]")
+            # Default to OpenAI
+            api_key = os.getenv("OPENAI_API_KEY")
+            if api_key and api_key != "sk-...":
+                self.embedder = OpenAIEmbedder(api_key)
+                console.print("[green]Using OpenAI for embeddings[/green]")
+            else:
+                console.print("[yellow]No OpenAI API key found - embeddings disabled[/yellow]")
 
         self.entities: List[CodeEntity] = []
 
@@ -66,8 +88,20 @@ class SimpleAutodoc:
         
         console.print(f"[green]Found {len(python_entities)} Python entities and {len(typescript_entities)} TypeScript entities[/green]")
 
-        if self.embedder and all_entities:
-            console.print("[blue]Generating embeddings...[/blue]")
+        # Generate embeddings using appropriate provider
+        if self.chromadb_embedder and all_entities:
+            console.print("[blue]Generating ChromaDB embeddings...[/blue]")
+            
+            # Use ChromaDB for embeddings
+            embedded_count = await self.chromadb_embedder.embed_entities(
+                all_entities, 
+                use_enrichment=True,
+                batch_size=self.config.embeddings.get("batch_size", 100)
+            )
+            console.print(f"[green]Embedded {embedded_count} entities in ChromaDB[/green]")
+            
+        elif self.embedder and all_entities:
+            console.print("[blue]Generating OpenAI embeddings...[/blue]")
             
             # Load enrichment cache if available
             enrichment_cache = None
@@ -138,7 +172,33 @@ class SimpleAutodoc:
 
     async def search(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
         """Search for code entities using embeddings or text matching."""
-        if not self.entities:
+        # Use ChromaDB search if available
+        if self.chromadb_embedder:
+            console.print(f"[blue]Searching ChromaDB for: {query}[/blue]")
+            results = await self.chromadb_embedder.search(query, limit=limit)
+            
+            # Convert ChromaDB results to expected format
+            formatted_results = []
+            for result in results:
+                entity_data = result["entity"]
+                # Load the full entity from cache if needed
+                entity_dict = {
+                    "type": entity_data["type"],
+                    "name": entity_data["name"],
+                    "file_path": entity_data["file_path"],
+                    "line_number": entity_data["line_number"],
+                    "docstring": "",  # Would need to load from cache
+                    "code": "",  # Would need to load from cache
+                    "embedding": None,
+                    "is_internal": result["metadata"].get("is_internal", False),
+                }
+                formatted_results.append({
+                    "entity": entity_dict,
+                    "similarity": result["similarity"]
+                })
+            return formatted_results
+            
+        elif not self.entities:
             return []
 
         if self.embedder and all(e.embedding for e in self.entities):

@@ -127,8 +127,8 @@ File: {entity.file_path}
         if entity.docstring:
             prompt += f"\nExisting docstring: {entity.docstring}\n"
             
-        if entity.code_snippet:
-            prompt += f"\nCode:\n```python\n{entity.code_snippet}\n```\n"
+        if entity.code:
+            prompt += f"\nCode:\n```python\n{entity.code}\n```\n"
             
         prompt += """
 Please provide:

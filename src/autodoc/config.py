@@ -57,10 +57,12 @@ class AutodocConfig:
     
     # Embedding settings
     embeddings: Dict[str, Any] = field(default_factory=lambda: {
-        "provider": "openai",
-        "model": "text-embedding-3-small",
+        "provider": "openai",  # Options: openai, chromadb
+        "model": "text-embedding-3-small",  # For OpenAI
+        "chromadb_model": "all-MiniLM-L6-v2",  # For ChromaDB local embeddings
         "dimensions": 1536,
-        "batch_size": 100
+        "batch_size": 100,
+        "persist_directory": ".autodoc_chromadb"  # For ChromaDB
     })
     
     # Graph settings

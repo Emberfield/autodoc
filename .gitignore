@@ -11,3 +11,12 @@ venv/
 .venv/
 autodoc_cache.json
 test_install/
+
+# Autodoc generated files (cache and temp files)
+.autodoc_chromadb/
+.autodoc_file_changes.json
+autodoc_enrichment_cache.json
+*.autodoc_backup
+
+# Keep enrichment files - they're valuable documentation
+# src/autodoc/*.enrichment.md

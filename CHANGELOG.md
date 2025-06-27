@@ -5,6 +5,83 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2024-01-26
+
+### Added
+- 📝 **Inline Documentation** - Revolutionary inline docstring enrichment
+  - Add enriched docstrings directly to your code files with `--inline`
+  - Smart docstring placement with proper indentation
+  - Preserves existing good docstrings, only improves basic ones
+  - Optional backup files for safety (`--backup/--no-backup`)
+  - Incremental processing - only updates changed files
+
+- 📁 **Module-Level Enrichment Files** - Comprehensive module documentation
+  - Generate `.enrichment.md` or `.enrichment.json` files with `--module-files`
+  - Complete module overview with entity summaries
+  - Enriched descriptions, key features, usage examples
+  - Perfect for code reviews and onboarding
+
+- 🔄 **Change Detection** - Smart incremental enrichment
+  - Tracks file modifications, content hashes, and entity counts
+  - Only processes files that have actually changed
+  - Persistent cache in `.autodoc_file_changes.json`
+  - Significant performance improvement for large codebases
+
+- ✨ **Enhanced CLI Commands**
+  - `autodoc enrich --inline` - Add docstrings directly to code
+  - `autodoc enrich --module-files` - Generate module enrichment files
+  - `autodoc generate --enrich --inline` - One-command enrichment + docs
+  - Flexible options: `--incremental`, `--backup`, `--module-format`
+
+### Improved
+- 🔧 **Smarter Enrichment Logic**
+  - Works with cached enrichments even without API keys
+  - Better error handling for missing dependencies
+  - More informative progress messages
+  - Robust AST parsing and docstring detection
+
+- 🚀 **Developer Experience**
+  - Enrichments now live in your actual code files
+  - Perfect for IDE integration and code completion
+  - Module files provide comprehensive documentation
+  - Incremental updates keep enrichments fresh
+
+### Technical
+- Comprehensive AST-based docstring manipulation
+- File change detection with content hashing
+- Modular enrichment architecture
+- Extensive test coverage (95 tests passing)
+
+## [0.4.0] - 2024-01-26
+
+### Added
+- 🚀 **ChromaDB Support** - Local embeddings without API requirements
+  - Use ChromaDB as an alternative to OpenAI embeddings
+  - Local sentence transformers for privacy and cost savings
+  - Persistent storage with SQLite backend
+  - Configure via `embeddings.provider: chromadb` in config
+
+- 🔄 **Embedding Regeneration** - Keep embeddings fresh with enriched content
+  - Added `--regenerate-embeddings` flag to `autodoc enrich`
+  - Automatically uses enriched descriptions for better search
+  - Works with both OpenAI and ChromaDB providers
+
+- 🎯 **Enhanced Search** - Improved semantic search with provider flexibility
+  - ChromaDB search with similarity scoring
+  - Metadata filtering for targeted results
+  - Seamless provider switching via config
+
+### Improved
+- 📊 **Better Status Checking**
+  - `autodoc check` now shows embedding provider status
+  - ChromaDB stats including model and embedding count
+  - Configuration file detection
+
+- 🔧 **Smarter Vector Command**
+  - Detects and uses configured embedding provider
+  - Shows enrichment ratio for ChromaDB
+  - Clearer messaging for provider requirements
+
 ## [0.3.1] - 2024-01-26
 
 ### Fixed

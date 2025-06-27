@@ -15,6 +15,7 @@ from rich.table import Table
 from .autodoc import SimpleAutodoc
 from .config import AutodocConfig
 from .enrichment import LLMEnricher, EnrichmentCache
+from .inline_enrichment import InlineEnricher, ModuleEnrichmentGenerator
 
 # Optional graph imports - only available if dependencies are installed
 try:
@@ -160,18 +161,50 @@ def search(query, limit):
 def check():
     """Check dependencies and configuration"""
     console.print("[bold]Autodoc Status:[/bold]\n")
-
-    api_key = os.getenv("OPENAI_API_KEY")
-    if api_key and api_key != "sk-...":
-        console.print("✅ OpenAI API key configured")
+    
+    # Load config to check embedding provider
+    config = AutodocConfig.load()
+    embedding_provider = config.embeddings.get("provider", "openai")
+    
+    console.print(f"[blue]Embedding Provider: {embedding_provider}[/blue]")
+    
+    if embedding_provider == "chromadb":
+        # Check ChromaDB
+        try:
+            from .chromadb_embedder import ChromaDBEmbedder
+            embedder = ChromaDBEmbedder(
+                persist_directory=config.embeddings.get("persist_directory", ".autodoc_chromadb")
+            )
+            stats = embedder.get_stats()
+            console.print(f"✅ ChromaDB configured")
+            console.print(f"   Model: {config.embeddings.get('chromadb_model', 'all-MiniLM-L6-v2')}")
+            console.print(f"   Embeddings: {stats['total_embeddings']}")
+            console.print(f"   Directory: {stats['persist_directory']}")
+        except Exception as e:
+            console.print(f"❌ ChromaDB error: {e}")
     else:
-        console.print("❌ OpenAI API key not found")
-        console.print("   Set OPENAI_API_KEY in .env file")
+        # Check OpenAI
+        api_key = os.getenv("OPENAI_API_KEY")
+        if api_key and api_key != "sk-...":
+            console.print("✅ OpenAI API key configured")
+        else:
+            console.print("❌ OpenAI API key not found")
+            console.print("   Set OPENAI_API_KEY in .env file")
 
     if Path("autodoc_cache.json").exists():
         console.print("✅ Analyzed code cache found")
     else:
         console.print("ℹ️  No analyzed code found - run 'autodoc analyze' first")
+    
+    # Check for enrichment cache
+    if Path("autodoc_enrichment_cache.json").exists():
+        console.print("✅ Enrichment cache found")
+    
+    # Check for config file
+    if Path(".autodoc.yml").exists() or Path("autodoc.yml").exists():
+        console.print("✅ Configuration file found")
+    else:
+        console.print("ℹ️  No config file - using defaults (run 'autodoc init' to create)")
 
 
 @cli.command(name="init")
@@ -208,13 +241,19 @@ def init_config():
 @click.option("--force", is_flag=True, help="Force re-enrichment of cached entities")
 @click.option("--provider", help="Override LLM provider (openai, anthropic, ollama)")
 @click.option("--model", help="Override LLM model")
-def enrich(limit, filter, type, force, provider, model):
+@click.option("--regenerate-embeddings", is_flag=True, help="Regenerate embeddings after enrichment")
+@click.option("--inline", is_flag=True, help="Add enriched docstrings directly to code files")
+@click.option("--incremental", is_flag=True, default=True, help="Only process changed files (default: true)")
+@click.option("--backup/--no-backup", default=True, help="Create backup files before modifying (default: true)")
+@click.option("--module-files", is_flag=True, help="Generate module-level enrichment files")
+@click.option("--module-format", type=click.Choice(["markdown", "json"]), default="markdown", help="Format for module enrichment files")
+def enrich(limit, filter, type, force, provider, model, regenerate_embeddings, inline, incremental, backup, module_files, module_format):
     """Enrich code entities with LLM-generated descriptions"""
     # Run async function
-    asyncio.run(_enrich_async(limit, filter, type, force, provider, model))
+    asyncio.run(_enrich_async(limit, filter, type, force, provider, model, regenerate_embeddings, inline, incremental, backup, module_files, module_format))
 
 
-async def _enrich_async(limit, filter, type, force, provider, model):
+async def _enrich_async(limit, filter, type, force, provider, model, regenerate_embeddings, inline, incremental, backup, module_files, module_format):
     """Async implementation of enrich command"""
     # Load config
     config = AutodocConfig.load()
@@ -225,12 +264,15 @@ async def _enrich_async(limit, filter, type, force, provider, model):
     if model:
         config.llm.model = model
     
-    # Check API key
+    # Check API key (but allow inline/module operations with cached data)
     api_key = config.llm.get_api_key()
     if not api_key and config.llm.provider != "ollama":
-        console.print(f"[red]No API key found for {config.llm.provider}[/red]")
-        console.print("[yellow]Set via environment variable or .autodoc.yml[/yellow]")
-        return
+        if not (inline or module_files):
+            console.print(f"[red]No API key found for {config.llm.provider}[/red]")
+            console.print("[yellow]Set via environment variable or .autodoc.yml[/yellow]")
+            return
+        else:
+            console.print(f"[yellow]No API key - will use cached enrichments only[/yellow]")
     
     # Load entities
     autodoc = SimpleAutodoc()
@@ -268,44 +310,46 @@ async def _enrich_async(limit, filter, type, force, provider, model):
             console.print(f"[blue]Skipping {len(entities) - len(uncached)} cached entities (use --force to re-enrich)[/blue]")
         entities = uncached
     
-    if not entities:
-        console.print("[green]All entities are already enriched![/green]")
-        return
-    
-    # Enrich entities
+    # Initialize counters
     enriched_count = 0
     failed_count = 0
     
-    async with LLMEnricher(config) as enricher:
-        with console.status("[yellow]Enriching entities...[/yellow]") as status:
-            # Process in smaller batches for better progress feedback
-            batch_size = min(config.enrichment.batch_size, 5)
-            
-            for i in range(0, len(entities), batch_size):
-                batch = entities[i:i + batch_size]
-                batch_names = [e.name for e in batch]
-                status.update(f"[yellow]Enriching: {', '.join(batch_names)}...[/yellow]")
+    if not entities:
+        console.print("[green]All entities are already enriched![/green]")
+    elif not api_key and config.llm.provider != "ollama":
+        console.print("[yellow]Skipping enrichment - no API key available[/yellow]")
+    else:
+        # Enrich entities
+        async with LLMEnricher(config) as enricher:
+            with console.status("[yellow]Enriching entities...[/yellow]") as status:
+                # Process in smaller batches for better progress feedback
+                batch_size = min(config.enrichment.batch_size, 5)
                 
-                try:
-                    enriched_batch = await enricher.enrich_entities(batch)
+                for i in range(0, len(entities), batch_size):
+                    batch = entities[i:i + batch_size]
+                    batch_names = [e.name for e in batch]
+                    status.update(f"[yellow]Enriching: {', '.join(batch_names)}...[/yellow]")
                     
-                    # Cache results
-                    for enriched in enriched_batch:
-                        cache_key = f"{enriched.entity.file_path}:{enriched.entity.name}:{enriched.entity.line_number}"
-                        cache.set_enrichment(cache_key, {
-                            "description": enriched.description,
-                            "purpose": enriched.purpose,
-                            "key_features": enriched.key_features,
-                            "complexity_notes": enriched.complexity_notes,
-                            "usage_examples": enriched.usage_examples,
-                            "design_patterns": enriched.design_patterns,
-                            "dependencies": enriched.dependencies
-                        })
-                        enriched_count += 1
+                    try:
+                        enriched_batch = await enricher.enrich_entities(batch)
                         
-                except Exception as e:
-                    console.print(f"[red]Error enriching batch: {e}[/red]")
-                    failed_count += len(batch)
+                        # Cache results
+                        for enriched in enriched_batch:
+                            cache_key = f"{enriched.entity.file_path}:{enriched.entity.name}:{enriched.entity.line_number}"
+                            cache.set_enrichment(cache_key, {
+                                "description": enriched.description,
+                                "purpose": enriched.purpose,
+                                "key_features": enriched.key_features,
+                                "complexity_notes": enriched.complexity_notes,
+                                "usage_examples": enriched.usage_examples,
+                                "design_patterns": enriched.design_patterns,
+                                "dependencies": enriched.dependencies
+                            })
+                            enriched_count += 1
+                            
+                    except Exception as e:
+                        console.print(f"[red]Error enriching batch: {e}[/red]")
+                        failed_count += len(batch)
     
     # Save cache
     cache.save_cache()
@@ -316,7 +360,103 @@ async def _enrich_async(limit, filter, type, force, provider, model):
         console.print(f"[red]❌ Failed to enrich {failed_count} entities[/red]")
     
     console.print(f"\n[blue]Enrichment cached in autodoc_enrichment_cache.json[/blue]")
-    console.print("[yellow]Run 'autodoc generate' to create documentation with enriched descriptions[/yellow]")
+    
+    # Handle inline enrichment
+    if inline:
+        console.print("\n[yellow]Adding enriched docstrings inline to code files...[/yellow]")
+        
+        inline_enricher = InlineEnricher(config, backup=backup)
+        inline_results = await inline_enricher.enrich_files_inline(
+            autodoc.entities, 
+            incremental=incremental, 
+            force=force
+        )
+        
+        total_updated = sum(r.updated_docstrings for r in inline_results)
+        total_errors = sum(len(r.errors) for r in inline_results)
+        
+        console.print(f"[green]✅ Updated {total_updated} docstrings across {len(inline_results)} files[/green]")
+        if total_errors > 0:
+            console.print(f"[red]❌ {total_errors} errors occurred during inline enrichment[/red]")
+        
+        console.print("[blue]💡 Enriched docstrings are now available in your code files[/blue]")
+    
+    # Handle module enrichment files
+    if module_files:
+        console.print(f"\n[yellow]Generating module-level enrichment files ({module_format})...[/yellow]")
+        
+        module_generator = ModuleEnrichmentGenerator(config)
+        generated_files = await module_generator.generate_module_enrichment_files(
+            autodoc.entities, 
+            output_format=module_format
+        )
+        
+        console.print(f"[green]✅ Generated {len(generated_files)} module enrichment files[/green]")
+        for file_path in generated_files[:5]:  # Show first 5
+            console.print(f"  📄 {Path(file_path).name}")
+        if len(generated_files) > 5:
+            console.print(f"  ... and {len(generated_files) - 5} more")
+    
+    if not inline and not module_files:
+        console.print("[yellow]Run 'autodoc generate' to create documentation with enriched descriptions[/yellow]")
+        console.print("[blue]💡 Use --inline to add docstrings directly to code files[/blue]")
+        console.print("[blue]💡 Use --module-files to generate module-level enrichment files[/blue]")
+    
+    # Regenerate embeddings if requested
+    if regenerate_embeddings:
+        console.print("\n[yellow]Regenerating embeddings with enriched content...[/yellow]")
+        
+        # Create new autodoc instance with config
+        autodoc_regen = SimpleAutodoc(config)
+        autodoc_regen.entities = autodoc.entities  # Copy entities
+        
+        # Check which embedder is configured
+        if autodoc_regen.chromadb_embedder:
+            # Clear existing ChromaDB embeddings
+            console.print("[blue]Clearing existing ChromaDB embeddings...[/blue]")
+            autodoc_regen.chromadb_embedder.clear_collection()
+            
+            # Re-embed all entities with enrichment
+            embedded_count = await autodoc_regen.chromadb_embedder.embed_entities(
+                autodoc_regen.entities,
+                use_enrichment=True,
+                batch_size=config.embeddings.get("batch_size", 100)
+            )
+            console.print(f"[green]✅ Re-embedded {embedded_count} entities in ChromaDB with enriched content[/green]")
+            
+        elif autodoc_regen.embedder:
+            # Use OpenAI embeddings
+            console.print("[blue]Regenerating OpenAI embeddings...[/blue]")
+            
+            texts = []
+            for entity in autodoc_regen.entities:
+                text = f"{entity.type} {entity.name}"
+                
+                # Use enriched description
+                cache_key = f"{entity.file_path}:{entity.name}:{entity.line_number}"
+                enrichment = cache.get_enrichment(cache_key)
+                if enrichment and enrichment.get("description"):
+                    text += f": {enrichment['description']}"
+                    if enrichment.get("key_features"):
+                        text += " Features: " + ", ".join(enrichment['key_features'])
+                elif entity.docstring:
+                    text += f": {entity.docstring}"
+                
+                texts.append(text)
+            
+            # Generate embeddings
+            embeddings = await autodoc_regen.embedder.embed_batch(texts)
+            for entity, embedding in zip(autodoc_regen.entities, embeddings):
+                entity.embedding = embedding
+            
+            # Save updated entities
+            autodoc_regen.save()
+            
+            console.print(f"[green]✅ Regenerated {len(embeddings)} embeddings with enriched content[/green]")
+        else:
+            console.print("[yellow]No embedder configured - skipping embedding regeneration[/yellow]")
+        
+        console.print("[blue]💡 Use 'autodoc search' to see improved search results[/blue]")
 
 
 @cli.command(name="graph")
@@ -415,7 +555,9 @@ def graph(clear, visualize):
 @click.option("--regenerate", is_flag=True, help="Regenerate all embeddings (overwrite existing)")
 def vector(regenerate):
     """Generate embeddings for semantic search"""
-    autodoc = SimpleAutodoc()
+    # Load config to determine embedding provider
+    config = AutodocConfig.load()
+    autodoc = SimpleAutodoc(config)
     
     # Load existing entities
     autodoc.load()
@@ -424,10 +566,41 @@ def vector(regenerate):
         console.print("[red]No analyzed code found. Run 'autodoc analyze' first.[/red]")
         return
     
-    if not autodoc.embedder:
-        console.print("[red]No OpenAI API key found. Set OPENAI_API_KEY environment variable.[/red]")
-        console.print("[blue]💡 Create a .env file with: OPENAI_API_KEY=sk-your-key-here[/blue]")
-        return
+    # Check which embedder is available
+    if autodoc.chromadb_embedder:
+        # Handle ChromaDB embeddings
+        console.print("[blue]Using ChromaDB for embeddings[/blue]")
+        
+        # Get current stats
+        stats = autodoc.chromadb_embedder.get_stats()
+        existing_embeddings = stats['total_embeddings']
+        
+        if existing_embeddings > 0 and not regenerate:
+            console.print(f"[yellow]Found {existing_embeddings} existing embeddings in ChromaDB.[/yellow]")
+            console.print(f"[blue]Enriched ratio: {stats['sample_enriched_ratio']:.1%}[/blue]")
+            console.print("[blue]💡 Use --regenerate to overwrite existing embeddings[/blue]")
+            return
+        
+        if regenerate and existing_embeddings > 0:
+            console.print("[yellow]Clearing existing ChromaDB embeddings...[/yellow]")
+            autodoc.chromadb_embedder.clear_collection()
+        
+        # Run embedding generation asynchronously
+        import asyncio
+        embedded_count = asyncio.run(
+            autodoc.chromadb_embedder.embed_entities(
+                autodoc.entities,
+                use_enrichment=True,
+                batch_size=config.embeddings.get("batch_size", 100)
+            )
+        )
+        
+        console.print(f"[green]✅ Embedded {embedded_count} entities in ChromaDB![/green]")
+        console.print("[blue]💡 You can now use 'autodoc search' for semantic search[/blue]")
+        
+    elif autodoc.embedder:
+        # Handle OpenAI embeddings (existing code)
+        console.print("[blue]Using OpenAI for embeddings[/blue]")
     
     # Check if embeddings already exist
     existing_embeddings = sum(1 for entity in autodoc.entities if entity.embedding is not None)
@@ -474,6 +647,10 @@ def vector(regenerate):
         
     except Exception as e:
         console.print(f"[red]Error generating embeddings: {e}[/red]")
+    
+    else:
+        console.print("[red]No embedding provider configured.[/red]")
+        console.print("[yellow]Configure OpenAI API key or set embeddings.provider: chromadb in .autodoc.yml[/yellow]")
 
 
 @cli.command(name="visualize-graph")
@@ -632,8 +809,19 @@ def query_graph(entry_points, test_coverage, patterns, complexity, deps, show_al
     help="Output format (default: markdown)",
 )
 @click.option("--detailed/--summary", default=True, help="Generate detailed documentation (default) or summary only")
-def generate(output, output_format, detailed):
+@click.option("--enrich", is_flag=True, help="Automatically enrich entities before generating documentation")
+@click.option("--inline", is_flag=True, help="Add enriched docstrings directly to code files (requires --enrich)")
+def generate(output, output_format, detailed, enrich, inline):
     """Generate comprehensive codebase documentation"""
+    # Run async function for enrichment if needed
+    if enrich:
+        asyncio.run(_generate_with_enrichment_async(output, output_format, detailed, inline))
+    else:
+        _generate_documentation_only(output, output_format, detailed)
+
+
+def _generate_documentation_only(output, output_format, detailed):
+    """Generate documentation without enrichment."""
     autodoc = SimpleAutodoc()
     autodoc.load()
 
@@ -689,6 +877,83 @@ def generate(output, output_format, detailed):
 
     except Exception as e:
         console.print(f"[red]Error saving file: {e}[/red]")
+
+
+async def _generate_with_enrichment_async(output, output_format, detailed, inline):
+    """Generate documentation with automatic enrichment."""
+    config = AutodocConfig.load()
+    autodoc = SimpleAutodoc(config)
+    autodoc.load()
+    
+    if not autodoc.entities:
+        console.print("[red]No analyzed code found. Run 'autodoc analyze' first.[/red]")
+        return
+    
+    # Check API key
+    api_key = config.llm.get_api_key()
+    if not api_key and config.llm.provider != "ollama":
+        console.print(f"[red]No API key found for {config.llm.provider}[/red]")
+        console.print("[yellow]Set via environment variable or .autodoc.yml[/yellow]")
+        return
+    
+    console.print("[yellow]Enriching entities before generating documentation...[/yellow]")
+    
+    # Load cache
+    cache = EnrichmentCache()
+    
+    # Find entities that need enrichment
+    entities_to_enrich = []
+    for entity in autodoc.entities:
+        cache_key = f"{entity.file_path}:{entity.name}:{entity.line_number}"
+        if not cache.get_enrichment(cache_key):
+            entities_to_enrich.append(entity)
+    
+    if entities_to_enrich:
+        console.print(f"[blue]Enriching {len(entities_to_enrich)} entities...[/blue]")
+        
+        # Enrich entities
+        async with LLMEnricher(config) as enricher:
+            try:
+                enriched = await enricher.enrich_entities(entities_to_enrich)
+                
+                # Cache results
+                for enriched_entity in enriched:
+                    cache_key = f"{enriched_entity.entity.file_path}:{enriched_entity.entity.name}:{enriched_entity.entity.line_number}"
+                    cache.set_enrichment(cache_key, {
+                        "description": enriched_entity.description,
+                        "purpose": enriched_entity.purpose,
+                        "key_features": enriched_entity.key_features,
+                        "complexity_notes": enriched_entity.complexity_notes,
+                        "usage_examples": enriched_entity.usage_examples,
+                        "design_patterns": enriched_entity.design_patterns,
+                        "dependencies": enriched_entity.dependencies
+                    })
+                
+                cache.save_cache()
+                console.print(f"[green]✅ Enriched {len(enriched)} entities[/green]")
+                
+            except Exception as e:
+                console.print(f"[red]Error during enrichment: {e}[/red]")
+                console.print("[yellow]Continuing with existing enrichments...[/yellow]")
+    else:
+        console.print("[green]All entities already enriched[/green]")
+    
+    # Handle inline enrichment if requested
+    if inline:
+        console.print("[yellow]Adding enriched docstrings inline to code files...[/yellow]")
+        
+        inline_enricher = InlineEnricher(config)
+        inline_results = await inline_enricher.enrich_files_inline(
+            autodoc.entities, 
+            incremental=True, 
+            force=False
+        )
+        
+        total_updated = sum(r.updated_docstrings for r in inline_results)
+        console.print(f"[green]✅ Updated {total_updated} docstrings inline[/green]")
+    
+    # Generate documentation
+    _generate_documentation_only(output, output_format, detailed)
 
 
 # Backwards compatibility alias
