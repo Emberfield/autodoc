@@ -7,9 +7,9 @@ import json
 import logging
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Set
 
-from aiohttp import web
+from aiohttp import web, WSMsgType
 from aiohttp_cors import ResourceOptions
 from aiohttp_cors import setup as setup_cors
 
@@ -35,6 +35,7 @@ class APIServer:
         self.graph_builder: Optional[CodeGraphBuilder] = None
         self.graph_query: Optional[CodeGraphQuery] = None
         self.graph_config = graph_config or GraphConfig.from_env()
+        self.websockets: Set[web.WebSocketResponse] = set() # Store active WebSocket connections
 
         # Setup CORS
         self._setup_cors()
@@ -79,6 +80,9 @@ class APIServer:
         self.app.router.add_get("/api/graph/stats", self.get_graph_stats)
         self.app.router.add_post("/api/graph/build", self.build_graph)
         self.app.router.add_post("/api/graph/query", self.query_graph)
+
+        # WebSocket endpoint
+        self.app.router.add_get("/ws", self.websocket_handler)
 
         # Search functionality
         self.app.router.add_post("/api/search", self.search_entities)
@@ -544,6 +548,44 @@ class APIServer:
             return web.json_response(
                 {"error": f"Failed to get API endpoints: {str(e)}"}, status=500
             )
+
+    async def websocket_handler(self, request: web.Request) -> web.WebSocketResponse:
+        """Handles WebSocket connections for real-time collaboration."""
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+
+        self.websockets.add(ws)
+        logger.info(f"WebSocket connection established: {ws.peername}. Total active connections: {len(self.websockets)}")
+
+        try:
+            async for msg in ws:
+                if msg.type == WSMsgType.TEXT:
+                    data = json.loads(msg.data)
+                    logger.info(f"Received WebSocket message from {ws.peername}: {data}")
+                    # Process incoming operation (e.g., text changes, cursor movements)
+                    # For now, just echo back or broadcast
+                    await self.broadcast(data, sender_ws=ws)
+                elif msg.type == WSMsgType.ERROR:
+                    logger.error(f"WebSocket connection error: {ws.exception()}")
+        except Exception as e:
+            logger.error(f"WebSocket handler error: {e}")
+        finally:
+            self.websockets.discard(ws)
+            logger.info(f"WebSocket connection closed. Total active connections: {len(self.websockets)}")
+        return ws
+
+    async def broadcast(self, message: Dict[str, Any], sender_ws: Optional[web.WebSocketResponse] = None):
+        """Broadcasts a message to all connected WebSocket clients, optionally skipping the sender."""
+        for ws in list(self.websockets): # Iterate over a copy to allow modification during iteration
+            if ws != sender_ws:
+                try:
+                    await self.send_json(ws, message)
+                except Exception as e:
+                    logger.error(f"Error broadcasting message to {ws.peername}: {e}")
+
+    async def send_json(self, ws: web.WebSocketResponse, data: Dict[str, Any]):
+        """Sends a JSON message over a WebSocket connection."""
+        await ws.send_json(data)
 
     def _entity_to_dict(self, entity: CodeEntity) -> Dict[str, Any]:
         """Convert CodeEntity to dictionary for JSON serialization."""
