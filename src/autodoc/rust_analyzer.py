@@ -3,26 +3,27 @@ Python wrapper for the Rust core analyzer.
 Falls back to Python implementation if Rust core is not available.
 """
 
-import os
-import sys
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Dict, Any
-from dataclasses import dataclass, asdict
+from typing import Any, Dict, List, Optional
 
 # Try to import the Rust core
 try:
     import autodoc_core
+
     RUST_CORE_AVAILABLE = True
 except ImportError:
     RUST_CORE_AVAILABLE = False
     print("Rust core not available, falling back to Python implementation")
 
-from .analyzer import CodeEntity as PythonCodeEntity, SimpleASTAnalyzer
+from .analyzer import CodeEntity as PythonCodeEntity
+from .analyzer import SimpleASTAnalyzer
 
 
 @dataclass
 class RustCodeEntity:
     """Wrapper for Rust CodeEntity to match Python interface."""
+
     type: str
     name: str
     file_path: str
@@ -48,7 +49,7 @@ class RustCodeEntity:
             self.parameters = []
 
     @classmethod
-    def from_rust_entity(cls, rust_entity) -> 'RustCodeEntity':
+    def from_rust_entity(cls, rust_entity) -> "RustCodeEntity":
         """Convert Rust entity to Python dataclass."""
         return cls(
             type=rust_entity.entity_type,
@@ -85,81 +86,81 @@ class HybridAnalyzer:
     Hybrid analyzer that uses Rust core when available,
     falls back to Python implementation otherwise.
     """
-    
+
     def __init__(self, use_rust: bool = True):
         self.use_rust = use_rust and RUST_CORE_AVAILABLE
-        
+
         if self.use_rust:
             self.rust_analyzer = autodoc_core.RustAnalyzer()
             print("Using high-performance Rust analyzer")
         else:
             self.python_analyzer = SimpleASTAnalyzer()
             print("Using Python analyzer")
-    
+
     def analyze_file(self, file_path: Path) -> List[PythonCodeEntity]:
         """Analyze a single file."""
         if self.use_rust:
             try:
                 rust_entities = self.rust_analyzer.analyze_file(str(file_path))
                 return [
-                    RustCodeEntity.from_rust_entity(e).to_python_entity()
-                    for e in rust_entities
+                    RustCodeEntity.from_rust_entity(e).to_python_entity() for e in rust_entities
                 ]
             except Exception as e:
                 print(f"Rust analyzer failed, falling back to Python: {e}")
                 self.use_rust = False
-        
+
         return self.python_analyzer.analyze_file(file_path)
-    
-    def analyze_directory(self, path: Path, exclude_patterns: List[str] = None) -> List[PythonCodeEntity]:
+
+    def analyze_directory(
+        self, path: Path, exclude_patterns: List[str] = None
+    ) -> List[PythonCodeEntity]:
         """Analyze all Python files in a directory."""
         if self.use_rust:
             try:
                 rust_entities = self.rust_analyzer.analyze_directory(str(path))
                 return [
-                    RustCodeEntity.from_rust_entity(e).to_python_entity()
-                    for e in rust_entities
+                    RustCodeEntity.from_rust_entity(e).to_python_entity() for e in rust_entities
                 ]
             except Exception as e:
                 print(f"Rust analyzer failed, falling back to Python: {e}")
                 self.use_rust = False
-        
+
         return self.python_analyzer.analyze_directory(path, exclude_patterns)
-    
+
     def benchmark_comparison(self, path: Path) -> Dict[str, Any]:
         """Compare performance between Rust and Python implementations."""
         import time
-        
+
         results = {}
-        
+
         # Benchmark Python implementation
         start = time.time()
         python_entities = self.python_analyzer.analyze_directory(path)
         python_time = time.time() - start
-        
-        results['python'] = {
-            'time_seconds': python_time,
-            'entities_found': len(python_entities),
-            'entities_per_second': len(python_entities) / python_time if python_time > 0 else 0
+
+        results["python"] = {
+            "time_seconds": python_time,
+            "entities_found": len(python_entities),
+            "entities_per_second": len(python_entities) / python_time if python_time > 0 else 0,
         }
-        
+
         # Benchmark Rust implementation if available
         if RUST_CORE_AVAILABLE:
             rust_analyzer = autodoc_core.RustAnalyzer()
             start = time.time()
             rust_entities = rust_analyzer.analyze_directory(str(path))
             rust_time = time.time() - start
-            
-            results['rust'] = {
-                'time_seconds': rust_time,
-                'entities_found': len(rust_entities),
-                'entities_per_second': len(rust_entities) / rust_time if rust_time > 0 else 0
+
+            results["rust"] = {
+                "time_seconds": rust_time,
+                "entities_found": len(rust_entities),
+                "entities_per_second": len(rust_entities) / rust_time if rust_time > 0 else 0,
             }
-            
+
             # Calculate speedup
             if python_time > 0:
-                results['speedup'] = python_time / rust_time
-            
+                results["speedup"] = python_time / rust_time
+
         return results
 
 
@@ -167,12 +168,9 @@ def analyze_with_rust(path: Path) -> List[PythonCodeEntity]:
     """Direct function to analyze with Rust core."""
     if not RUST_CORE_AVAILABLE:
         raise ImportError("Rust core is not available. Run 'make build-rust' to compile it.")
-    
+
     entities = autodoc_core.analyze_directory_rust(str(path))
-    return [
-        RustCodeEntity.from_rust_entity(e).to_python_entity()
-        for e in entities
-    ]
+    return [RustCodeEntity.from_rust_entity(e).to_python_entity() for e in entities]
 
 
 # Performance testing utility
@@ -180,32 +178,32 @@ def run_performance_test(test_dir: Path = None):
     """Run performance comparison between Python and Rust implementations."""
     if test_dir is None:
         test_dir = Path.cwd()
-    
+
     analyzer = HybridAnalyzer(use_rust=False)  # Force comparison
     results = analyzer.benchmark_comparison(test_dir)
-    
-    print("\n" + "="*50)
+
+    print("\n" + "=" * 50)
     print("Performance Comparison Results")
-    print("="*50)
-    
-    if 'python' in results:
-        print(f"\nPython Implementation:")
+    print("=" * 50)
+
+    if "python" in results:
+        print("\nPython Implementation:")
         print(f"  Time: {results['python']['time_seconds']:.3f} seconds")
         print(f"  Entities: {results['python']['entities_found']}")
         print(f"  Speed: {results['python']['entities_per_second']:.0f} entities/second")
-    
-    if 'rust' in results:
-        print(f"\nRust Implementation:")
+
+    if "rust" in results:
+        print("\nRust Implementation:")
         print(f"  Time: {results['rust']['time_seconds']:.3f} seconds")
         print(f"  Entities: {results['rust']['entities_found']}")
         print(f"  Speed: {results['rust']['entities_per_second']:.0f} entities/second")
-        
-        if 'speedup' in results:
+
+        if "speedup" in results:
             print(f"\n🚀 Rust is {results['speedup']:.1f}x faster than Python!")
     else:
         print("\n⚠️  Rust core not available for comparison")
-    
-    print("="*50 + "\n")
+
+    print("=" * 50 + "\n")
 
 
 if __name__ == "__main__":

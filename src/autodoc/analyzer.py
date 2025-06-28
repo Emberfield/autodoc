@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 
 console = Console()
 
@@ -80,44 +80,57 @@ class SimpleASTAnalyzer:
     def analyze_directory(self, path: Path, exclude_patterns: List[str] = None) -> List[CodeEntity]:
         """Analyze all Python files in a directory."""
         console.print(f"[blue]Analyzing {path}...[/blue]")
-        
+
         # Default exclude patterns
-        default_excludes = ["__pycache__", "venv", ".venv", "build", "dist", "node_modules", ".git", 
-                           "test_install", "lib", "libs", ".tox", ".eggs", "*.egg-info"]
+        default_excludes = [
+            "__pycache__",
+            "venv",
+            ".venv",
+            "build",
+            "dist",
+            "node_modules",
+            ".git",
+            "test_install",
+            "lib",
+            "libs",
+            ".tox",
+            ".eggs",
+            "*.egg-info",
+        ]
 
         python_files = list(path.rglob("*.py"))
-        
+
         # Filter files
         filtered_files = []
         for f in python_files:
             # Skip if in default exclude directories
             if any(skip in f.parts for skip in default_excludes):
                 continue
-            
+
             # Skip if matches exclude patterns
             if exclude_patterns:
                 relative_path = f.relative_to(path)
                 if any(relative_path.match(pattern) for pattern in exclude_patterns):
                     continue
-            
+
             filtered_files.append(f)
-        
+
         python_files = filtered_files
 
         console.print(f"Found {len(python_files)} Python files")
 
         all_entities = []
-        
+
         # Use progress bar for file analysis
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
             BarColumn(),
             TaskProgressColumn(),
-            console=console
+            console=console,
         ) as progress:
             task = progress.add_task("[cyan]Analyzing files...", total=len(python_files))
-            
+
             for file_path in python_files:
                 progress.update(task, description=f"[cyan]Analyzing {file_path.name}...")
                 entities = self.analyze_file(file_path)
@@ -231,7 +244,6 @@ class EnhancedASTAnalyzer(SimpleASTAnalyzer):
                 and node.name == entity.name
                 and node.lineno == entity.line_number
             ):
-
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     self._analyze_function_node(entity, node, file_imports, content)
                 elif isinstance(node, ast.ClassDef):

@@ -21,6 +21,7 @@ from .summary import CodeAnalyzer, MarkdownFormatter
 # Optional TypeScript analyzer import
 try:
     from .typescript_analyzer import TypeScriptAnalyzer
+
     TYPESCRIPT_AVAILABLE = True
 except ImportError:
     TYPESCRIPT_AVAILABLE = False
@@ -42,22 +43,30 @@ class SimpleAutodoc:
         if TYPESCRIPT_AVAILABLE:
             self.ts_analyzer = TypeScriptAnalyzer()
             if not self.ts_analyzer.is_available():
-                console.print("[yellow]TypeScript analyzer initialized but tree-sitter not available[/yellow]")
+                console.print(
+                    "[yellow]TypeScript analyzer initialized but tree-sitter not available[/yellow]"
+                )
         else:
             console.print("[yellow]TypeScript analyzer not available[/yellow]")
 
         # Initialize embedder based on config
         embedding_provider = self.config.embeddings.get("provider", "openai")
-        
+
         if embedding_provider == "chromadb":
             # Use ChromaDB for local embeddings
             try:
                 self.chromadb_embedder = ChromaDBEmbedder(
                     collection_name="autodoc_embeddings",
-                    persist_directory=self.config.embeddings.get("persist_directory", ".autodoc_chromadb"),
-                    embedding_model=self.config.embeddings.get("chromadb_model", "all-MiniLM-L6-v2")
+                    persist_directory=self.config.embeddings.get(
+                        "persist_directory", ".autodoc_chromadb"
+                    ),
+                    embedding_model=self.config.embeddings.get(
+                        "chromadb_model", "all-MiniLM-L6-v2"
+                    ),
                 )
-                console.print(f"[green]Using ChromaDB for embeddings (model: {self.config.embeddings.get('chromadb_model')})[/green]")
+                console.print(
+                    f"[green]Using ChromaDB for embeddings (model: {self.config.embeddings.get('chromadb_model')})[/green]"
+                )
             except Exception as e:
                 console.print(f"[red]Failed to initialize ChromaDB: {e}[/red]")
                 console.print("[yellow]Embeddings disabled[/yellow]")
@@ -72,25 +81,30 @@ class SimpleAutodoc:
 
         self.entities: List[CodeEntity] = []
 
-    async def analyze_directory(self, path: Path, incremental: bool = False, exclude_patterns: List[str] = None) -> Dict[str, Any]:
+    async def analyze_directory(
+        self, path: Path, incremental: bool = False, exclude_patterns: List[str] = None
+    ) -> Dict[str, Any]:
         """Analyze a directory and return analysis summary."""
         console.print(f"[blue]Analyzing directory: {path}[/blue]")
-        
+
         if exclude_patterns:
             console.print(f"[yellow]Excluding patterns: {', '.join(exclude_patterns)}[/yellow]")
-        
+
         # Load existing entities if incremental
         existing_entities = []
         changed_files = set()
         if incremental and Path("autodoc_cache.json").exists():
             self.load()
             existing_entities = self.entities.copy()
-            console.print(f"[yellow]Incremental mode: loaded {len(existing_entities)} existing entities[/yellow]")
-            
+            console.print(
+                f"[yellow]Incremental mode: loaded {len(existing_entities)} existing entities[/yellow]"
+            )
+
             # Import ChangeDetector for file change detection
             from .inline_enrichment import ChangeDetector
+
             change_detector = ChangeDetector()
-            
+
             # Get list of changed files
             changed_files = change_detector.get_changed_files(existing_entities)
             if changed_files:
@@ -98,73 +112,80 @@ class SimpleAutodoc:
             else:
                 console.print("[green]No files have changed since last analysis[/green]")
                 return self._create_summary(existing_entities)
-        
+
         # Analyze Python files
         if incremental and changed_files:
             # Only analyze changed files
             python_entities = []
             for file_path in changed_files:
-                if file_path.endswith('.py'):
+                if file_path.endswith(".py"):
                     file_entities = self.analyzer.analyze_file(Path(file_path))
                     python_entities.extend(file_entities)
-            
+
             # Keep entities from unchanged files
             unchanged_entities = [e for e in existing_entities if e.file_path not in changed_files]
             all_entities = unchanged_entities + python_entities
         else:
             # Full analysis
             python_entities = self.analyzer.analyze_directory(path, exclude_patterns)
-            all_entities = python_entities.copy()  # Create a copy to avoid modifying the original list
-        
+            all_entities = (
+                python_entities.copy()
+            )  # Create a copy to avoid modifying the original list
+
         # Analyze TypeScript files if analyzer is available
         typescript_entities = []
         if self.ts_analyzer and self.ts_analyzer.is_available():
             if incremental and changed_files:
                 # Only analyze changed TypeScript files
                 for file_path in changed_files:
-                    if file_path.endswith(('.ts', '.tsx')):
+                    if file_path.endswith((".ts", ".tsx")):
                         file_entities = self.ts_analyzer.analyze_file(Path(file_path))
                         typescript_entities.extend(file_entities)
-                
+
                 # Add TypeScript entities from unchanged files
-                unchanged_ts_entities = [e for e in existing_entities 
-                                       if e.file_path.endswith(('.ts', '.tsx')) 
-                                       and e.file_path not in changed_files]
+                unchanged_ts_entities = [
+                    e
+                    for e in existing_entities
+                    if e.file_path.endswith((".ts", ".tsx")) and e.file_path not in changed_files
+                ]
                 typescript_entities.extend(unchanged_ts_entities)
             else:
                 # Full analysis
                 typescript_entities = self.ts_analyzer.analyze_directory(path, exclude_patterns)
             all_entities.extend(typescript_entities)
-        
-        console.print(f"[green]Found {len(python_entities)} Python entities and {len(typescript_entities)} TypeScript entities[/green]")
+
+        console.print(
+            f"[green]Found {len(python_entities)} Python entities and {len(typescript_entities)} TypeScript entities[/green]"
+        )
 
         # Generate embeddings using appropriate provider
         if self.chromadb_embedder and all_entities:
             console.print("[blue]Generating ChromaDB embeddings...[/blue]")
-            
+
             # Use ChromaDB for embeddings
             embedded_count = await self.chromadb_embedder.embed_entities(
-                all_entities, 
+                all_entities,
                 use_enrichment=True,
-                batch_size=self.config.embeddings.get("batch_size", 100)
+                batch_size=self.config.embeddings.get("batch_size", 100),
             )
             console.print(f"[green]Embedded {embedded_count} entities in ChromaDB[/green]")
-            
+
         elif self.embedder and all_entities:
             console.print("[blue]Generating OpenAI embeddings...[/blue]")
-            
+
             # Load enrichment cache if available
             enrichment_cache = None
             try:
                 from .enrichment import EnrichmentCache
+
                 enrichment_cache = EnrichmentCache()
             except Exception:
                 pass
-            
+
             texts = []
             for entity in all_entities:
                 text = f"{entity.type} {entity.name}"
-                
+
                 # Use enriched description if available
                 if enrichment_cache:
                     cache_key = f"{entity.file_path}:{entity.name}:{entity.line_number}"
@@ -172,12 +193,12 @@ class SimpleAutodoc:
                     if enrichment and enrichment.get("description"):
                         text += f": {enrichment['description']}"
                         if enrichment.get("key_features"):
-                            text += " Features: " + ", ".join(enrichment['key_features'])
+                            text += " Features: " + ", ".join(enrichment["key_features"])
                     elif entity.docstring:
                         text += f": {entity.docstring}"
                 elif entity.docstring:
                     text += f": {entity.docstring}"
-                    
+
                 texts.append(text)
 
             embeddings = await self.embedder.embed_batch(texts)
@@ -195,20 +216,23 @@ class SimpleAutodoc:
                 change_detector.mark_processed(Path(file_path), file_entities)
 
         return self._create_summary(all_entities, python_entities, typescript_entities)
-    
-    def _create_summary(self, all_entities: List[CodeEntity], 
-                       python_entities: List[CodeEntity] = None, 
-                       typescript_entities: List[CodeEntity] = None) -> Dict[str, Any]:
+
+    def _create_summary(
+        self,
+        all_entities: List[CodeEntity],
+        python_entities: List[CodeEntity] = None,
+        typescript_entities: List[CodeEntity] = None,
+    ) -> Dict[str, Any]:
         """Create analysis summary from entities."""
         if python_entities is None:
-            python_entities = [e for e in all_entities if e.file_path.endswith('.py')]
+            python_entities = [e for e in all_entities if e.file_path.endswith(".py")]
         if typescript_entities is None:
-            typescript_entities = [e for e in all_entities if e.file_path.endswith(('.ts', '.tsx'))]
-        
+            typescript_entities = [e for e in all_entities if e.file_path.endswith((".ts", ".tsx"))]
+
         # Calculate language-specific stats
         python_files = len(set(e.file_path for e in python_entities))
         typescript_files = len(set(e.file_path for e in typescript_entities))
-        
+
         return {
             "files_analyzed": len(set(e.file_path for e in all_entities)),
             "total_entities": len(all_entities),
@@ -223,7 +247,7 @@ class SimpleAutodoc:
                     "files": python_files,
                     "entities": len(python_entities),
                     "functions": len([e for e in python_entities if e.type == "function"]),
-                    "classes": len([e for e in python_entities if e.type == "class"])
+                    "classes": len([e for e in python_entities if e.type == "class"]),
                 },
                 "typescript": {
                     "files": typescript_files,
@@ -232,15 +256,21 @@ class SimpleAutodoc:
                     "classes": len([e for e in typescript_entities if e.type == "class"]),
                     "methods": len([e for e in typescript_entities if e.type == "method"]),
                     "interfaces": len([e for e in typescript_entities if e.type == "interface"]),
-                    "types": len([e for e in typescript_entities if e.type == "type"])
-                }
-            }
+                    "types": len([e for e in typescript_entities if e.type == "type"]),
+                },
+            },
         }
 
-    async def search(self, query: str, limit: int = 10, type_filter: str = None, 
-                    file_filter: str = None, use_regex: bool = False) -> List[Dict[str, Any]]:
+    async def search(
+        self,
+        query: str,
+        limit: int = 10,
+        type_filter: str = None,
+        file_filter: str = None,
+        use_regex: bool = False,
+    ) -> List[Dict[str, Any]]:
         """Search for code entities using embeddings or text matching.
-        
+
         Args:
             query: Search query string
             limit: Maximum number of results
@@ -255,33 +285,33 @@ class SimpleAutodoc:
             formatted_results = []
             for entity, similarity in results:
                 entity_dict = asdict(entity)
-                formatted_results.append({
-                    "entity": entity_dict,
-                    "similarity": similarity
-                })
+                formatted_results.append({"entity": entity_dict, "similarity": similarity})
             return formatted_results
-        
+
         # Otherwise use ChromaDB search if available
         elif self.chromadb_embedder:
             console.print(f"[blue]Searching ChromaDB for: {query}[/blue]")
             # For ChromaDB, we need to post-filter results
-            results = await self.chromadb_embedder.search(query, limit=limit * 3)  # Get more results for filtering
-            
+            results = await self.chromadb_embedder.search(
+                query, limit=limit * 3
+            )  # Get more results for filtering
+
             # Convert ChromaDB results to expected format and apply filters
             formatted_results = []
             for result in results:
                 entity_data = result["entity"]
-                
+
                 # Apply type filter
                 if type_filter and entity_data["type"] != type_filter:
                     continue
-                
+
                 # Apply file filter
                 if file_filter:
                     import fnmatch
+
                     if not fnmatch.fnmatch(entity_data["file_path"], file_filter):
                         continue
-                
+
                 # Load the full entity from cache if needed
                 entity_dict = {
                     "type": entity_data["type"],
@@ -293,16 +323,15 @@ class SimpleAutodoc:
                     "embedding": None,
                     "is_internal": result["metadata"].get("is_internal", False),
                 }
-                formatted_results.append({
-                    "entity": entity_dict,
-                    "similarity": result["similarity"]
-                })
-                
+                formatted_results.append(
+                    {"entity": entity_dict, "similarity": result["similarity"]}
+                )
+
                 if len(formatted_results) >= limit:
                     break
-                    
+
             return formatted_results
-            
+
         else:
             return []
 
@@ -345,10 +374,16 @@ class SimpleAutodoc:
             "has_embeddings": self.embedder is not None or self.chromadb_embedder is not None,
         }
 
-    async def search_async(self, query: str, limit: int = 10, type_filter: str = None,
-                          file_filter: str = None, use_regex: bool = False) -> List[tuple]:
+    async def search_async(
+        self,
+        query: str,
+        limit: int = 10,
+        type_filter: str = None,
+        file_filter: str = None,
+        use_regex: bool = False,
+    ) -> List[tuple]:
         """Async version of search that returns (entity, score) tuples.
-        
+
         Args:
             query: Search query string
             limit: Maximum number of results
@@ -361,15 +396,17 @@ class SimpleAutodoc:
 
         # Apply type and file filters first
         filtered_entities = self.entities
-        
+
         if type_filter:
             filtered_entities = [e for e in filtered_entities if e.type == type_filter]
-        
+
         if file_filter:
             import fnmatch
-            filtered_entities = [e for e in filtered_entities 
-                               if fnmatch.fnmatch(e.file_path, file_filter)]
-        
+
+            filtered_entities = [
+                e for e in filtered_entities if fnmatch.fnmatch(e.file_path, file_filter)
+            ]
+
         if not filtered_entities:
             return []
 
@@ -387,15 +424,16 @@ class SimpleAutodoc:
         else:
             # Text-based search with optional regex
             results = []
-            
+
             if use_regex:
                 import re
+
                 try:
                     pattern = re.compile(query, re.IGNORECASE)
                 except re.error:
                     console.print(f"[red]Invalid regex pattern: {query}[/red]")
                     return []
-                
+
                 for entity in filtered_entities:
                     if pattern.search(entity.name):
                         results.append((entity, 1.0))
@@ -420,10 +458,11 @@ class SimpleAutodoc:
             backup_path = f"{path}.backup"
             try:
                 import shutil
+
                 shutil.copy2(path, backup_path)
             except Exception as e:
                 console.print(f"[yellow]Warning: Could not create backup: {e}[/yellow]")
-        
+
         data = {"entities": [asdict(e) for e in self.entities]}
         with open(path, "w") as f:
             json.dump(data, f, indent=2)
@@ -434,17 +473,18 @@ class SimpleAutodoc:
         try:
             with open(path, "r") as f:
                 data = json.load(f)
-            
+
             # Filter entity data to only include fields that CodeEntity accepts
             from inspect import signature
+
             valid_fields = set(signature(CodeEntity).parameters.keys())
-            
+
             self.entities = []
             for entity_data in data["entities"]:
                 # Only keep fields that exist in CodeEntity
                 filtered_data = {k: v for k, v in entity_data.items() if k in valid_fields}
                 self.entities.append(CodeEntity(**filtered_data))
-            
+
             console.print(f"[green]Loaded {len(self.entities)} entities from {path}[/green]")
         except FileNotFoundError:
             console.print(f"[yellow]No cache file found at {path}[/yellow]")
@@ -458,6 +498,7 @@ class SimpleAutodoc:
         enrichment_cache = None
         if use_enrichment:
             from .enrichment import EnrichmentCache
+
             enrichment_cache = EnrichmentCache()
 
         # Initialize analyzers
@@ -489,13 +530,16 @@ class SimpleAutodoc:
                     enrichment = enrichment_cache.get_enrichment(cache_key)
                     if enrichment:
                         enriched_data = enrichment
-                
+
                 func_info = {
                     "name": entity.name,
                     "line": entity.line_number,
                     "signature": code_analyzer.extract_signature(entity),
-                    "docstring": enriched_data.get("description") or entity.docstring or "No description",
-                    "purpose": enriched_data.get("purpose") or code_analyzer.extract_purpose(entity),
+                    "docstring": enriched_data.get("description")
+                    or entity.docstring
+                    or "No description",
+                    "purpose": enriched_data.get("purpose")
+                    or code_analyzer.extract_purpose(entity),
                     "complexity": code_analyzer.estimate_complexity(entity),
                     "calls": [],  # Would need more sophisticated analysis
                     "decorators": code_analyzer.extract_decorators(entity),
@@ -521,11 +565,13 @@ class SimpleAutodoc:
                     enrichment = enrichment_cache.get_enrichment(cache_key)
                     if enrichment:
                         enriched_data = enrichment
-                
+
                 class_info = {
                     "name": entity.name,
                     "line": entity.line_number,
-                    "docstring": enriched_data.get("description") or entity.docstring or "No description",
+                    "docstring": enriched_data.get("description")
+                    or entity.docstring
+                    or "No description",
                     "purpose": enriched_data.get("purpose", ""),
                     "key_features": enriched_data.get("key_features", []),
                     "design_patterns": enriched_data.get("design_patterns", []),
@@ -823,7 +869,6 @@ class SimpleAutodoc:
                 and entity.type == "function"
                 and entity.line_number > class_entity.line_number
             ):
-
                 # Simple heuristic: if the function is indented and comes after the class,
                 # it's likely a method. More sophisticated analysis would check indentation.
                 methods.append(entity)

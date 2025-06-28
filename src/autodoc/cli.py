@@ -10,7 +10,6 @@ from pathlib import Path
 import click
 from rich.console import Console
 from rich.table import Table
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
 from .autodoc import SimpleAutodoc
 from .config import AutodocConfig
@@ -25,8 +24,9 @@ try:
 except ImportError as e:
     # Check if it's a specific import error or all dependencies missing
     import importlib.util
+
     deps_available = all(
-        importlib.util.find_spec(dep) is not None 
+        importlib.util.find_spec(dep) is not None
         for dep in ["matplotlib", "plotly", "neo4j", "networkx", "pyvis"]
     )
     if deps_available:
@@ -48,7 +48,7 @@ console = Console()
 @click.group()
 def cli():
     """Autodoc - AI-powered code intelligence
-    
+
     Quick start:
       1. autodoc analyze ./src          # Analyze your codebase
       2. autodoc generate              # Create AUTODOC.md documentation
@@ -62,7 +62,9 @@ def cli():
 @click.argument("path", type=click.Path(exists=True), default=".")
 @click.option("--save", is_flag=True, help="Save analysis to cache")
 @click.option("--incremental", is_flag=True, help="Only analyze changed files")
-@click.option("--exclude", "-e", multiple=True, help="Patterns to exclude (can be used multiple times)")
+@click.option(
+    "--exclude", "-e", multiple=True, help="Patterns to exclude (can be used multiple times)"
+)
 @click.option("--watch", "-w", is_flag=True, help="Watch for changes and re-analyze automatically")
 @click.option("--rust", is_flag=True, help="Use high-performance Rust analyzer (Python only)")
 def analyze(path, save, incremental, exclude, watch, rust):
@@ -79,7 +81,6 @@ def analyze(path, save, incremental, exclude, watch, rust):
             # Use Rust analyzer for Python files
             console.print("[green]Using high-performance Rust analyzer...[/green]")
             try:
-                import autodoc_core
                 summary = _analyze_with_rust(autodoc, path, exclude)
             except ImportError:
                 console.print("[red]Rust core not available. Install with: make build-rust[/red]")
@@ -91,13 +92,15 @@ def analyze(path, save, incremental, exclude, watch, rust):
             asyncio.set_event_loop(loop)
             try:
                 summary = loop.run_until_complete(
-                    autodoc.analyze_directory(Path(path), incremental=incremental, exclude_patterns=list(exclude))
+                    autodoc.analyze_directory(
+                        Path(path), incremental=incremental, exclude_patterns=list(exclude)
+                    )
                 )
             finally:
                 loop.close()
-        
+
         _display_summary(summary)
-        
+
         if save:
             autodoc.save()
 
@@ -105,19 +108,22 @@ def analyze(path, save, incremental, exclude, watch, rust):
 def _analyze_with_rust(autodoc, path, exclude_patterns):
     """Analyze using Rust core."""
     import autodoc_core
+
     from .analyzer import CodeEntity
-    
+
     # Get all entities from Rust
-    rust_entities = autodoc_core.analyze_directory_rust(str(path), list(exclude_patterns) if exclude_patterns else None)
-    
+    rust_entities = autodoc_core.analyze_directory_rust(
+        str(path), list(exclude_patterns) if exclude_patterns else None
+    )
+
     # Convert Rust entities to our CodeEntity format
     entities = []
     for rust_entity in rust_entities:
         # Convert parameters from list of strings to list of dicts
         params = []
         for param_name in rust_entity.parameters:
-            params.append({'name': param_name, 'type': None})
-        
+            params.append({"name": param_name, "type": None})
+
         entity = CodeEntity(
             type=rust_entity.entity_type,
             name=rust_entity.name,
@@ -128,83 +134,83 @@ def _analyze_with_rust(autodoc, path, exclude_patterns):
             decorators=rust_entity.decorators,
             parameters=params,
         )
-        
+
         # Add async info to decorators if needed
         if rust_entity.is_async:
-            entity.decorators.append('async')
-            
+            entity.decorators.append("async")
+
         # Store return type in response_type field
         if rust_entity.return_type:
             entity.response_type = rust_entity.return_type
-            
+
         entities.append(entity)
-    
+
     # Store entities in autodoc
     autodoc.entities = entities
-    
+
     # Calculate summary
     summary = {
-        'files_analyzed': len(set(e.file_path for e in entities)),
-        'total_entities': len(entities),
-        'functions': sum(1 for e in entities if e.type == 'function'),
-        'classes': sum(1 for e in entities if e.type == 'class'),
-        'methods': sum(1 for e in entities if e.type == 'method'),
-        'interfaces': 0,
-        'types': 0,
-        'has_embeddings': False,
-        'languages': {
-            'python': {
-                'files': len(set(e.file_path for e in entities)),
-                'entities': len(entities),
-                'functions': sum(1 for e in entities if e.type == 'function'),
-                'classes': sum(1 for e in entities if e.type == 'class'),
+        "files_analyzed": len(set(e.file_path for e in entities)),
+        "total_entities": len(entities),
+        "functions": sum(1 for e in entities if e.type == "function"),
+        "classes": sum(1 for e in entities if e.type == "class"),
+        "methods": sum(1 for e in entities if e.type == "method"),
+        "interfaces": 0,
+        "types": 0,
+        "has_embeddings": False,
+        "languages": {
+            "python": {
+                "files": len(set(e.file_path for e in entities)),
+                "entities": len(entities),
+                "functions": sum(1 for e in entities if e.type == "function"),
+                "classes": sum(1 for e in entities if e.type == "class"),
             },
-            'typescript': {
-                'files': 0,
-                'entities': 0,
-                'functions': 0,
-                'classes': 0,
-                'methods': 0,
-                'interfaces': 0,
-                'types': 0,
-            }
-        }
+            "typescript": {
+                "files": 0,
+                "entities": 0,
+                "functions": 0,
+                "classes": 0,
+                "methods": 0,
+                "interfaces": 0,
+                "types": 0,
+            },
+        },
     }
-    
+
     return summary
 
 
 def _display_summary(summary):
     """Display analysis summary."""
     console.print("\n[bold]Analysis Summary:[/bold]")
-    
+
     # Display overall stats
     console.print(f"  Files analyzed: {summary['files_analyzed']}")
     console.print(f"  Total entities: {summary['total_entities']}")
     console.print(f"  Functions: {summary['functions']}")
     console.print(f"  Classes: {summary['classes']}")
-    
-    if summary.get('methods', 0) > 0:
+
+    if summary.get("methods", 0) > 0:
         console.print(f"  Methods: {summary['methods']}")
-    if summary.get('interfaces', 0) > 0:
+    if summary.get("interfaces", 0) > 0:
         console.print(f"  Interfaces: {summary['interfaces']}")
-    if summary.get('types', 0) > 0:
+    if summary.get("types", 0) > 0:
         console.print(f"  Types: {summary['types']}")
-    
+
     console.print(f"  Embeddings: {'enabled' if summary['has_embeddings'] else 'disabled'}")
-    
+
     # Display language-specific stats
-    if 'languages' in summary:
-        languages = summary['languages']
-        
-        if languages['python']['entities'] > 0:
+    if "languages" in summary:
+        languages = summary["languages"]
+
+        if languages["python"]["entities"] > 0:
             console.print("\n[bold]Python:[/bold]")
             console.print(f"  Files: {languages['python']['files']}")
             console.print(f"  Entities: {languages['python']['entities']}")
             console.print(f"  Functions: {languages['python']['functions']}")
             console.print(f"  Classes: {languages['python']['classes']}")
-        
-        if languages['typescript']['entities'] > 0:
+
+        if languages["typescript"]["entities"] > 0:
             console.print("\n[bold]TypeScript:[/bold]")
             console.print(f"  Files: {languages['typescript']['files']}")
             console.print(f"  Entities: {languages['typescript']['entities']}")
@@ -218,47 +224,49 @@ def _display_summary(summary):
 def _run_watch_mode(autodoc, path, save, exclude):
     """Run analysis in watch mode."""
     import time
-    
+
     try:
-        from watchdog.observers import Observer
         from watchdog.events import FileSystemEventHandler
+        from watchdog.observers import Observer
     except ImportError:
         console.print("[red]Watch mode requires 'watchdog' package.[/red]")
         console.print("[yellow]Install with: pip install watchdog[/yellow]")
         return
-    
+
     class CodeChangeHandler(FileSystemEventHandler):
         def __init__(self):
             self.last_modified = {}
             self.debounce_seconds = 1.0
-            
+
         def should_process(self, file_path):
             """Check if file should be processed."""
-            if not file_path.endswith(('.py', '.ts', '.tsx')):
+            if not file_path.endswith((".py", ".ts", ".tsx")):
                 return False
-            
+
             # Check debounce
             now = time.time()
             last = self.last_modified.get(file_path, 0)
             if now - last < self.debounce_seconds:
                 return False
-            
+
             self.last_modified[file_path] = now
             return True
-            
+
         def on_modified(self, event):
             if event.is_directory:
                 return
-                
+
             if self.should_process(event.src_path):
                 console.print(f"\n[yellow]Detected change in {event.src_path}[/yellow]")
-                
+
                 # Run incremental analysis
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 try:
                     summary = loop.run_until_complete(
-                        autodoc.analyze_directory(Path(path), incremental=True, exclude_patterns=list(exclude))
+                        autodoc.analyze_directory(
+                            Path(path), incremental=True, exclude_patterns=list(exclude)
+                        )
                     )
                     _display_summary(summary)
                     if save:
@@ -268,9 +276,9 @@ def _run_watch_mode(autodoc, path, save, exclude):
                     console.print(f"[red]Error during analysis: {e}[/red]")
                 finally:
                     loop.close()
-                    
+
                 console.print("\n[dim]Watching for changes... (Ctrl+C to stop)[/dim]")
-    
+
     # Initial analysis
     console.print("[yellow]Running initial analysis...[/yellow]")
     loop = asyncio.new_event_loop()
@@ -284,16 +292,16 @@ def _run_watch_mode(autodoc, path, save, exclude):
             autodoc.save()
     finally:
         loop.close()
-    
+
     # Set up file watcher
     event_handler = CodeChangeHandler()
     observer = Observer()
     observer.schedule(event_handler, path, recursive=True)
     observer.start()
-    
+
     console.print("\n[green]Watch mode started. Monitoring for changes...[/green]")
     console.print("[dim]Press Ctrl+C to stop[/dim]\n")
-    
+
     try:
         while True:
             time.sleep(1)
@@ -312,7 +320,7 @@ def _run_watch_mode(autodoc, path, save, exclude):
 @click.option("--regex", "-r", is_flag=True, help="Use regex pattern matching")
 def search(query, limit, type, file, regex):
     """Search for code entities
-    
+
     Examples:
       autodoc search "parse.*file" --regex
       autodoc search "analyze" --type function
@@ -329,7 +337,9 @@ def search(query, limit, type, file, regex):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        results = loop.run_until_complete(autodoc.search(query, limit, type_filter=type, file_filter=file, use_regex=regex))
+        results = loop.run_until_complete(
+            autodoc.search(query, limit, type_filter=type, file_filter=file, use_regex=regex)
+        )
     finally:
         loop.close()
 
@@ -361,7 +371,7 @@ def search(query, limit, type, file, regex):
 @click.option("--detailed", "-d", is_flag=True, help="Show detailed differences")
 def diff(cache1, cache2, detailed):
     """Compare two analysis caches to see what changed
-    
+
     Examples:
       autodoc diff                               # Compare current with previous backup
       autodoc diff cache1.json cache2.json      # Compare two specific caches
@@ -369,7 +379,7 @@ def diff(cache1, cache2, detailed):
     """
     import json
     from pathlib import Path
-    
+
     # If no second cache specified, look for backup
     if not cache2:
         backup_path = Path(f"{cache1}.backup")
@@ -380,68 +390,80 @@ def diff(cache1, cache2, detailed):
             console.print("[red]No second cache file specified and no backup found.[/red]")
             console.print("[yellow]Usage: autodoc diff [cache1] [cache2][/yellow]")
             return
-    
+
     # Load caches
     try:
-        with open(cache1, 'r') as f:
+        with open(cache1, "r") as f:
             data1 = json.load(f)
-        with open(cache2, 'r') as f:
+        with open(cache2, "r") as f:
             data2 = json.load(f)
     except Exception as e:
         console.print(f"[red]Error loading cache files: {e}[/red]")
         return
-    
-    entities1 = {f"{e['file_path']}:{e['name']}": e for e in data1.get('entities', [])}
-    entities2 = {f"{e['file_path']}:{e['name']}": e for e in data2.get('entities', [])}
-    
+
+    entities1 = {f"{e['file_path']}:{e['name']}": e for e in data1.get("entities", [])}
+    entities2 = {f"{e['file_path']}:{e['name']}": e for e in data2.get("entities", [])}
+
     # Find differences
     added = set(entities1.keys()) - set(entities2.keys())
     removed = set(entities2.keys()) - set(entities1.keys())
     common = set(entities1.keys()) & set(entities2.keys())
-    
+
     modified = []
     for key in common:
         e1 = entities1[key]
         e2 = entities2[key]
         # Check if entity has changed (line number, docstring, code)
-        if (e1.get('line_number') != e2.get('line_number') or
-            e1.get('docstring') != e2.get('docstring') or
-            e1.get('code') != e2.get('code')):
+        if (
+            e1.get("line_number") != e2.get("line_number")
+            or e1.get("docstring") != e2.get("docstring")
+            or e1.get("code") != e2.get("code")
+        ):
             modified.append(key)
-    
+
     # Display summary
     console.print("\n[bold]Analysis Diff Summary:[/bold]")
     console.print(f"  Added: [green]{len(added)}[/green] entities")
     console.print(f"  Removed: [red]{len(removed)}[/red] entities")
     console.print(f"  Modified: [yellow]{len(modified)}[/yellow] entities")
     console.print(f"  Unchanged: {len(common) - len(modified)} entities")
-    
+
     if detailed or (added or removed or modified):
         # Show details
         if added:
             console.print("\n[green]Added entities:[/green]")
             for key in sorted(added):
                 entity = entities1[key]
-                console.print(f"  + {entity['type']} {entity['name']} in {Path(entity['file_path']).name}")
-        
+                console.print(
+                    f"  + {entity['type']} {entity['name']} in {Path(entity['file_path']).name}"
+                )
+
         if removed:
             console.print("\n[red]Removed entities:[/red]")
             for key in sorted(removed):
                 entity = entities2[key]
-                console.print(f"  - {entity['type']} {entity['name']} in {Path(entity['file_path']).name}")
-        
+                console.print(
+                    f"  - {entity['type']} {entity['name']} in {Path(entity['file_path']).name}"
+                )
+
         if modified and detailed:
             console.print("\n[yellow]Modified entities:[/yellow]")
             for key in sorted(modified):
                 entity1 = entities1[key]
                 entity2 = entities2[key]
-                console.print(f"  ~ {entity1['type']} {entity1['name']} in {Path(entity1['file_path']).name}")
-                
+                console.print(
+                    f"  ~ {entity1['type']} {entity1['name']} in {Path(entity1['file_path']).name}"
+                )
+
                 # Show what changed
-                if entity1.get('line_number') != entity2.get('line_number'):
-                    console.print(f"    Line: {entity2.get('line_number')} → {entity1.get('line_number')}")
-                if entity1.get('docstring') != entity2.get('docstring'):
-                    console.print(f"    Docstring: {'added' if entity1.get('docstring') and not entity2.get('docstring') else 'modified' if entity1.get('docstring') else 'removed'}")
+                if entity1.get("line_number") != entity2.get("line_number"):
+                    console.print(
+                        f"    Line: {entity2.get('line_number')} → {entity1.get('line_number')}"
+                    )
+                if entity1.get("docstring") != entity2.get("docstring"):
+                    console.print(
+                        f"    Docstring: {'added' if entity1.get('docstring') and not entity2.get('docstring') else 'modified' if entity1.get('docstring') else 'removed'}"
+                    )
 
 
 @cli.command()
@@ -450,45 +472,44 @@ def diff(cache1, cache2, detailed):
 @click.option("--include-config", is_flag=True, help="Include configuration")
 def export(output, include_enrichments, include_config):
     """Export analysis data for sharing with team
-    
+
     Creates a zip file containing:
     - autodoc_cache.json (analysis results)
     - autodoc_enrichment_cache.json (if --include-enrichments)
     - autodoc_config.json (if --include-config)
     """
     import zipfile
-    import os
     from pathlib import Path
-    
+
     files_to_export = []
-    
+
     # Always include main cache
     if Path("autodoc_cache.json").exists():
         files_to_export.append("autodoc_cache.json")
     else:
         console.print("[red]No analysis cache found. Run 'autodoc analyze' first.[/red]")
         return
-    
+
     # Include enrichments if requested
     if include_enrichments and Path("autodoc_enrichment_cache.json").exists():
         files_to_export.append("autodoc_enrichment_cache.json")
-    
+
     # Include config if requested
     if include_config and Path("autodoc_config.json").exists():
         files_to_export.append("autodoc_config.json")
-    
+
     # Create zip file
     try:
-        with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as zf:
+        with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zf:
             for file in files_to_export:
                 zf.write(file)
                 console.print(f"[green]Added {file}[/green]")
-        
+
         # Get file size
         size = Path(output).stat().st_size / 1024  # KB
         console.print(f"\n[green]✅ Exported to {output} ({size:.1f} KB)[/green]")
         console.print(f"[blue]Files included: {', '.join(files_to_export)}[/blue]")
-        
+
     except Exception as e:
         console.print(f"[red]Error creating export: {e}[/red]")
 
@@ -498,7 +519,7 @@ def export(output, include_enrichments, include_config):
 @click.option("--overwrite", is_flag=True, help="Overwrite existing files")
 def import_(input_file, overwrite):
     """Import analysis data from export file
-    
+
     Extracts and imports:
     - autodoc_cache.json
     - autodoc_enrichment_cache.json (if present)
@@ -506,15 +527,15 @@ def import_(input_file, overwrite):
     """
     import zipfile
     from pathlib import Path
-    
+
     try:
-        with zipfile.ZipFile(input_file, 'r') as zf:
+        with zipfile.ZipFile(input_file, "r") as zf:
             # List files in archive
             files = zf.namelist()
             console.print(f"[blue]Found {len(files)} files in archive:[/blue]")
             for file in files:
                 console.print(f"  • {file}")
-            
+
             # Check for existing files
             existing = [f for f in files if Path(f).exists()]
             if existing and not overwrite:
@@ -523,132 +544,146 @@ def import_(input_file, overwrite):
                     console.print(f"  • {file}")
                 console.print("[red]Use --overwrite to replace existing files.[/red]")
                 return
-            
+
             # Extract files
             console.print("\n[yellow]Importing files...[/yellow]")
             for file in files:
                 zf.extract(file)
                 console.print(f"[green]✅ Imported {file}[/green]")
-            
+
             # Load and show summary
             autodoc = SimpleAutodoc()
             autodoc.load()
-            console.print(f"\n[green]Successfully imported {len(autodoc.entities)} entities[/green]")
-            
+            console.print(
+                f"\n[green]Successfully imported {len(autodoc.entities)} entities[/green]"
+            )
+
             # Check for enrichments
             if "autodoc_enrichment_cache.json" in files:
                 console.print("[blue]Enrichment cache also imported[/blue]")
-            
+
     except Exception as e:
         console.print(f"[red]Error importing: {e}[/red]")
 
 
 @cli.command()
 @click.option("--output", "-o", help="Output file for test mapping (default: stdout)")
-@click.option("--format", "-f", type=click.Choice(["table", "json", "markdown"]), default="table", help="Output format")
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["table", "json", "markdown"]),
+    default="table",
+    help="Output format",
+)
 def test_map(output, format):
     """Map test functions to the code they test
-    
+
     Analyzes test files to find which functions are being tested,
     helping identify test coverage gaps.
     """
     import json
     from pathlib import Path
-    
+
     autodoc = SimpleAutodoc()
     autodoc.load()
-    
+
     if not autodoc.entities:
         console.print("[red]No analyzed code found. Run 'autodoc analyze' first.[/red]")
         return
-    
+
     # Find test functions and the functions they test
     test_mapping = {}
     tested_functions = set()
-    
+
     # Get all test functions
-    test_functions = [e for e in autodoc.entities if e.file_path.find('test') != -1 and e.type == 'function']
-    
+    test_functions = [
+        e for e in autodoc.entities if e.file_path.find("test") != -1 and e.type == "function"
+    ]
+
     for test_func in test_functions:
         if not test_func.code:
             continue
-            
+
         # Simple heuristic: look for function calls in test code
         # This is a basic implementation - could be enhanced with AST analysis
         tested = []
-        
+
         # Look for direct function calls
         import re
+
         # Match function calls like func_name( or self.func_name(
-        call_pattern = r'(?:self\.)?\b(\w+)\s*\('
+        call_pattern = r"(?:self\.)?\b(\w+)\s*\("
         calls = re.findall(call_pattern, test_func.code)
-        
+
         # Match against known functions
         for call in calls:
             for entity in autodoc.entities:
-                if (entity.type == 'function' and 
-                    entity.name == call and 
-                    entity.file_path.find('test') == -1):
-                    tested.append({
-                        'name': entity.name,
-                        'file': entity.file_path,
-                        'line': entity.line_number
-                    })
+                if (
+                    entity.type == "function"
+                    and entity.name == call
+                    and entity.file_path.find("test") == -1
+                ):
+                    tested.append(
+                        {"name": entity.name, "file": entity.file_path, "line": entity.line_number}
+                    )
                     tested_functions.add(f"{entity.file_path}:{entity.name}")
-        
+
         if tested:
             test_mapping[f"{test_func.file_path}::{test_func.name}"] = tested
-    
+
     # Find untested functions
-    all_functions = [e for e in autodoc.entities 
-                    if e.type == 'function' and e.file_path.find('test') == -1]
+    all_functions = [
+        e for e in autodoc.entities if e.type == "function" and e.file_path.find("test") == -1
+    ]
     untested = []
     for func in all_functions:
         func_id = f"{func.file_path}:{func.name}"
-        if func_id not in tested_functions and not func.name.startswith('_'):
-            untested.append({
-                'name': func.name,
-                'file': func.file_path,
-                'line': func.line_number
-            })
-    
+        if func_id not in tested_functions and not func.name.startswith("_"):
+            untested.append({"name": func.name, "file": func.file_path, "line": func.line_number})
+
     # Format output
     if format == "json":
         result = {
-            'test_mapping': test_mapping,
-            'untested_functions': untested,
-            'summary': {
-                'total_functions': len(all_functions),
-                'tested_functions': len(tested_functions),
-                'untested_functions': len(untested),
-                'coverage_percentage': (len(tested_functions) / len(all_functions) * 100) if all_functions else 0
-            }
+            "test_mapping": test_mapping,
+            "untested_functions": untested,
+            "summary": {
+                "total_functions": len(all_functions),
+                "tested_functions": len(tested_functions),
+                "untested_functions": len(untested),
+                "coverage_percentage": (
+                    (len(tested_functions) / len(all_functions) * 100) if all_functions else 0
+                ),
+            },
         }
         output_text = json.dumps(result, indent=2)
-        
+
     elif format == "markdown":
         lines = ["# Test Coverage Mapping\n"]
         lines.append(f"**Total Functions:** {len(all_functions)}")
         lines.append(f"**Tested:** {len(tested_functions)}")
         lines.append(f"**Untested:** {len(untested)}")
-        lines.append(f"**Coverage:** {len(tested_functions) / len(all_functions) * 100:.1f}%\n" if all_functions else "**Coverage:** 0%\n")
-        
+        lines.append(
+            f"**Coverage:** {len(tested_functions) / len(all_functions) * 100:.1f}%\n"
+            if all_functions
+            else "**Coverage:** 0%\n"
+        )
+
         lines.append("## Test Mapping\n")
         for test, functions in test_mapping.items():
             lines.append(f"### {test}")
             for func in functions:
                 lines.append(f"- `{func['name']}` in {Path(func['file']).name}:{func['line']}")
             lines.append("")
-        
+
         if untested:
             lines.append("## Untested Functions\n")
             for func in untested[:20]:  # Show first 20
                 lines.append(f"- `{func['name']}` in {Path(func['file']).name}:{func['line']}")
             if len(untested) > 20:
                 lines.append(f"\n... and {len(untested) - 20} more")
-        
+
         output_text = "\n".join(lines)
-        
+
     else:  # table format
         # Summary
         console.print("\n[bold]Test Coverage Summary:[/bold]")
@@ -657,20 +692,20 @@ def test_map(output, format):
         console.print(f"  Untested: [red]{len(untested)}[/red]")
         if all_functions:
             console.print(f"  Coverage: {len(tested_functions) / len(all_functions) * 100:.1f}%")
-        
+
         # Show some test mappings
         if test_mapping:
             console.print("\n[bold]Sample Test Mappings:[/bold]")
             shown = 0
             for test, functions in list(test_mapping.items())[:5]:
-                test_name = test.split('::')[1]
+                test_name = test.split("::")[1]
                 console.print(f"\n[cyan]{test_name}[/cyan] tests:")
                 for func in functions[:3]:
                     console.print(f"  → {func['name']} ({Path(func['file']).name})")
                 if len(functions) > 3:
                     console.print(f"  ... and {len(functions) - 3} more")
                 shown += 1
-        
+
         # Show untested functions
         if untested:
             console.print(f"\n[bold]Untested Functions ({len(untested)} total):[/bold]")
@@ -678,22 +713,18 @@ def test_map(output, format):
             table.add_column("Function", style="red")
             table.add_column("File", style="dim")
             table.add_column("Line", style="dim")
-            
+
             for func in untested[:10]:
-                table.add_row(
-                    func['name'],
-                    Path(func['file']).name,
-                    str(func['line'])
-                )
+                table.add_row(func["name"], Path(func["file"]).name, str(func["line"]))
             console.print(table)
             if len(untested) > 10:
                 console.print(f"[dim]... and {len(untested) - 10} more[/dim]")
-        
+
         output_text = None
-    
+
     # Write to file if specified
     if output and output_text:
-        with open(output, 'w') as f:
+        with open(output, "w") as f:
             f.write(output_text)
         console.print(f"\n[green]Output written to {output}[/green]")
 
@@ -702,23 +733,26 @@ def test_map(output, format):
 def check():
     """Check dependencies and configuration"""
     console.print("[bold]Autodoc Status:[/bold]\n")
-    
+
     # Load config to check embedding provider
     config = AutodocConfig.load()
     embedding_provider = config.embeddings.get("provider", "openai")
-    
+
     console.print(f"[blue]Embedding Provider: {embedding_provider}[/blue]")
-    
+
     if embedding_provider == "chromadb":
         # Check ChromaDB
         try:
             from .chromadb_embedder import ChromaDBEmbedder
+
             embedder = ChromaDBEmbedder(
                 persist_directory=config.embeddings.get("persist_directory", ".autodoc_chromadb")
             )
             stats = embedder.get_stats()
             console.print("✅ ChromaDB configured")
-            console.print(f"   Model: {config.embeddings.get('chromadb_model', 'all-MiniLM-L6-v2')}")
+            console.print(
+                f"   Model: {config.embeddings.get('chromadb_model', 'all-MiniLM-L6-v2')}"
+            )
             console.print(f"   Embeddings: {stats['total_embeddings']}")
             console.print(f"   Directory: {stats['persist_directory']}")
         except Exception as e:
@@ -736,11 +770,11 @@ def check():
         console.print("✅ Analyzed code cache found")
     else:
         console.print("ℹ️  No analyzed code found - run 'autodoc analyze' first")
-    
+
     # Check for enrichment cache
     if Path("autodoc_enrichment_cache.json").exists():
         console.print("✅ Enrichment cache found")
-    
+
     # Check for config file
     if Path(".autodoc.yml").exists() or Path("autodoc.yml").exists():
         console.print("✅ Configuration file found")
@@ -752,16 +786,16 @@ def check():
 def init_config():
     """Initialize autodoc configuration file"""
     config_path = Path.cwd() / ".autodoc.yml"
-    
+
     if config_path.exists():
         console.print("[yellow]Configuration file already exists at .autodoc.yml[/yellow]")
         if not click.confirm("Overwrite existing configuration?"):
             return
-    
+
     # Create default config
     config = AutodocConfig()
     config.save(config_path)
-    
+
     console.print("[green]✅ Created .autodoc.yml configuration file[/green]")
     console.print("\n[blue]Configuration sections:[/blue]")
     console.print("  • llm: LLM provider settings (OpenAI, Anthropic, Ollama)")
@@ -778,70 +812,140 @@ def init_config():
 @cli.command(name="enrich")
 @click.option("--limit", "-l", default=None, type=int, help="Limit number of entities to enrich")
 @click.option("--filter", "-f", help="Filter entities by name pattern")
-@click.option("--type", "-t", type=click.Choice(["function", "class", "all"]), default="all", help="Entity type to enrich")
+@click.option(
+    "--type",
+    "-t",
+    type=click.Choice(["function", "class", "all"]),
+    default="all",
+    help="Entity type to enrich",
+)
 @click.option("--force", is_flag=True, help="Force re-enrichment of cached entities")
 @click.option("--provider", help="Override LLM provider (openai, anthropic, ollama)")
 @click.option("--model", help="Override LLM model")
-@click.option("--regenerate-embeddings", is_flag=True, help="Regenerate embeddings after enrichment")
+@click.option(
+    "--regenerate-embeddings", is_flag=True, help="Regenerate embeddings after enrichment"
+)
 @click.option("--inline", is_flag=True, help="Add enriched docstrings directly to code files")
-@click.option("--incremental", is_flag=True, default=True, help="Only process changed files (default: true)")
-@click.option("--backup/--no-backup", default=True, help="Create backup files before modifying (default: true)")
+@click.option(
+    "--incremental", is_flag=True, default=True, help="Only process changed files (default: true)"
+)
+@click.option(
+    "--backup/--no-backup",
+    default=True,
+    help="Create backup files before modifying (default: true)",
+)
 @click.option("--module-files", is_flag=True, help="Generate module-level enrichment files")
-@click.option("--module-format", type=click.Choice(["markdown", "json"]), default="markdown", help="Format for module enrichment files")
+@click.option(
+    "--module-format",
+    type=click.Choice(["markdown", "json"]),
+    default="markdown",
+    help="Format for module enrichment files",
+)
 @click.option("--dry-run", is_flag=True, help="Preview changes without modifying files")
-def enrich(limit, filter, type, force, provider, model, regenerate_embeddings, inline, incremental, backup, module_files, module_format, dry_run):
+def enrich(
+    limit,
+    filter,
+    type,
+    force,
+    provider,
+    model,
+    regenerate_embeddings,
+    inline,
+    incremental,
+    backup,
+    module_files,
+    module_format,
+    dry_run,
+):
     """Enrich code entities with LLM-generated descriptions"""
     # Run async function
-    asyncio.run(_enrich_async(limit, filter, type, force, provider, model, regenerate_embeddings, inline, incremental, backup, module_files, module_format, dry_run))
+    asyncio.run(
+        _enrich_async(
+            limit,
+            filter,
+            type,
+            force,
+            provider,
+            model,
+            regenerate_embeddings,
+            inline,
+            incremental,
+            backup,
+            module_files,
+            module_format,
+            dry_run,
+        )
+    )
 
 
-async def _enrich_async(limit, filter, type, force, provider, model, regenerate_embeddings, inline, incremental, backup, module_files, module_format, dry_run):
+async def _enrich_async(
+    limit,
+    filter,
+    type,
+    force,
+    provider,
+    model,
+    regenerate_embeddings,
+    inline,
+    incremental,
+    backup,
+    module_files,
+    module_format,
+    dry_run,
+):
     """Async implementation of enrich command"""
     # Load config
     config = AutodocConfig.load()
-    
+
     # Override provider/model if specified
     if provider:
         config.llm.provider = provider
     if model:
         config.llm.model = model
-    
+
     # Check API key (but allow inline/module operations with cached data)
     api_key = config.llm.get_api_key()
     if not api_key and config.llm.provider != "ollama":
         if not (inline or module_files):
             console.print(f"[red]No API key found for {config.llm.provider}[/red]")
             console.print("[yellow]Set via environment variable or .autodoc.yml[/yellow]")
-            console.print(f"[yellow]Example: export {config.llm.provider.upper()}_API_KEY=your-api-key[/yellow]")
+            console.print(
+                f"[yellow]Example: export {config.llm.provider.upper()}_API_KEY=your-api-key[/yellow]"
+            )
             return
         else:
-            console.print(f"[yellow]No API key found for {config.llm.provider} - will use cached enrichments only[/yellow]")
+            console.print(
+                f"[yellow]No API key found for {config.llm.provider} - will use cached enrichments only[/yellow]"
+            )
             console.print("[dim]To generate new enrichments, set your API key[/dim]")
-    
+
     # Load entities
     autodoc = SimpleAutodoc()
     autodoc.load()
-    
+
     if not autodoc.entities:
         console.print("[red]No analyzed code found. Run 'autodoc analyze' first.[/red]")
         return
-    
+
     # Filter entities
     entities = autodoc.entities
     if type != "all":
         entities = [e for e in entities if e.type == type]
     if filter:
         import re
+
         pattern = re.compile(filter, re.IGNORECASE)
         entities = [e for e in entities if pattern.search(e.name)]
     if limit:
         entities = entities[:limit]
-    
-    console.print(f"[yellow]Enriching {len(entities)} entities with {config.llm.provider}/{config.llm.model}...[/yellow]")
-    
+
+    console.print(
+        f"[yellow]Enriching {len(entities)} entities with {config.llm.provider}/{config.llm.model}...[/yellow]"
+    )
+
     # Load cache
     cache = EnrichmentCache()
-    
+
     # Filter out already cached entities unless force is set
     if not force:
         uncached = []
@@ -849,15 +953,17 @@ async def _enrich_async(limit, filter, type, force, provider, model, regenerate_
             cache_key = f"{entity.file_path}:{entity.name}:{entity.line_number}"
             if not cache.get_enrichment(cache_key):
                 uncached.append(entity)
-        
+
         if len(uncached) < len(entities):
-            console.print(f"[blue]Skipping {len(entities) - len(uncached)} cached entities (use --force to re-enrich)[/blue]")
+            console.print(
+                f"[blue]Skipping {len(entities) - len(uncached)} cached entities (use --force to re-enrich)[/blue]"
+            )
         entities = uncached
-    
+
     # Initialize counters
     enriched_count = 0
     failed_count = 0
-    
+
     if not entities:
         console.print("[green]All entities are already enriched![/green]")
     elif not api_key and config.llm.provider != "ollama":
@@ -868,156 +974,186 @@ async def _enrich_async(limit, filter, type, force, provider, model, regenerate_
             with console.status("[yellow]Enriching entities...[/yellow]") as status:
                 # Process in smaller batches for better progress feedback
                 batch_size = min(config.enrichment.batch_size, 5)
-                
+
                 for i in range(0, len(entities), batch_size):
-                    batch = entities[i:i + batch_size]
+                    batch = entities[i : i + batch_size]
                     batch_names = [e.name for e in batch]
                     status.update(f"[yellow]Enriching: {', '.join(batch_names)}...[/yellow]")
-                    
+
                     try:
                         enriched_batch = await enricher.enrich_entities(batch)
-                        
+
                         # Cache results
                         for enriched in enriched_batch:
                             cache_key = f"{enriched.entity.file_path}:{enriched.entity.name}:{enriched.entity.line_number}"
-                            cache.set_enrichment(cache_key, {
-                                "description": enriched.description,
-                                "purpose": enriched.purpose,
-                                "key_features": enriched.key_features,
-                                "complexity_notes": enriched.complexity_notes,
-                                "usage_examples": enriched.usage_examples,
-                                "design_patterns": enriched.design_patterns,
-                                "dependencies": enriched.dependencies
-                            })
+                            cache.set_enrichment(
+                                cache_key,
+                                {
+                                    "description": enriched.description,
+                                    "purpose": enriched.purpose,
+                                    "key_features": enriched.key_features,
+                                    "complexity_notes": enriched.complexity_notes,
+                                    "usage_examples": enriched.usage_examples,
+                                    "design_patterns": enriched.design_patterns,
+                                    "dependencies": enriched.dependencies,
+                                },
+                            )
                             enriched_count += 1
-                            
+
                     except Exception as e:
                         console.print(f"[red]Error enriching batch: {e}[/red]")
                         failed_count += len(batch)
-    
+
     # Save cache
     if not dry_run:
         cache.save_cache()
     else:
         console.print("\n[blue]DRY RUN: Enrichment cache was not saved[/blue]")
-    
+
     # Summary
     console.print(f"\n[green]✅ Enriched {enriched_count} entities[/green]")
     if failed_count > 0:
         console.print(f"[red]❌ Failed to enrich {failed_count} entities[/red]")
-    
+
     console.print("\n[blue]Enrichment cached in autodoc_enrichment_cache.json[/blue]")
-    
+
     # Handle inline enrichment
     if inline:
         if dry_run:
-            console.print("\n[yellow]DRY RUN: Would add enriched docstrings inline to code files...[/yellow]")
+            console.print(
+                "\n[yellow]DRY RUN: Would add enriched docstrings inline to code files...[/yellow]"
+            )
         else:
             console.print("\n[yellow]Adding enriched docstrings inline to code files...[/yellow]")
-        
+
         inline_enricher = InlineEnricher(config, backup=backup, dry_run=dry_run)
         inline_results = await inline_enricher.enrich_files_inline(
-            autodoc.entities, 
-            incremental=incremental, 
-            force=force
+            autodoc.entities, incremental=incremental, force=force
         )
-        
+
         total_updated = sum(r.updated_docstrings for r in inline_results)
         total_errors = sum(len(r.errors) for r in inline_results)
-        
+
         if dry_run:
-            console.print(f"[green]✅ Would update {total_updated} docstrings across {len(inline_results)} files[/green]")
+            console.print(
+                f"[green]✅ Would update {total_updated} docstrings across {len(inline_results)} files[/green]"
+            )
             if total_errors > 0:
-                console.print(f"[red]❌ {total_errors} errors would occur during inline enrichment[/red]")
+                console.print(
+                    f"[red]❌ {total_errors} errors would occur during inline enrichment[/red]"
+                )
             console.print("[blue]💡 No files were modified (dry run)[/blue]")
         else:
-            console.print(f"[green]✅ Updated {total_updated} docstrings across {len(inline_results)} files[/green]")
+            console.print(
+                f"[green]✅ Updated {total_updated} docstrings across {len(inline_results)} files[/green]"
+            )
             if total_errors > 0:
-                console.print(f"[red]❌ {total_errors} errors occurred during inline enrichment[/red]")
-            console.print("[blue]💡 Enriched docstrings are now available in your code files[/blue]")
-    
+                console.print(
+                    f"[red]❌ {total_errors} errors occurred during inline enrichment[/red]"
+                )
+            console.print(
+                "[blue]💡 Enriched docstrings are now available in your code files[/blue]"
+            )
+
     # Handle module enrichment files
     if module_files:
         if dry_run:
-            console.print(f"\n[yellow]DRY RUN: Would generate module-level enrichment files ({module_format})...[/yellow]")
+            console.print(
+                f"\n[yellow]DRY RUN: Would generate module-level enrichment files ({module_format})...[/yellow]"
+            )
         else:
-            console.print(f"\n[yellow]Generating module-level enrichment files ({module_format})...[/yellow]")
-        
+            console.print(
+                f"\n[yellow]Generating module-level enrichment files ({module_format})...[/yellow]"
+            )
+
         module_generator = ModuleEnrichmentGenerator(config, dry_run=dry_run)
         generated_files = await module_generator.generate_module_enrichment_files(
-            autodoc.entities, 
-            output_format=module_format
+            autodoc.entities, output_format=module_format
         )
-        
+
         if dry_run:
-            console.print(f"[green]✅ Would generate {len(generated_files)} module enrichment files[/green]")
+            console.print(
+                f"[green]✅ Would generate {len(generated_files)} module enrichment files[/green]"
+            )
         else:
-            console.print(f"[green]✅ Generated {len(generated_files)} module enrichment files[/green]")
-        
+            console.print(
+                f"[green]✅ Generated {len(generated_files)} module enrichment files[/green]"
+            )
+
         for file_path in generated_files[:5]:  # Show first 5
             console.print(f"  📄 {Path(file_path).name}")
         if len(generated_files) > 5:
             console.print(f"  ... and {len(generated_files) - 5} more")
-    
+
     if not inline and not module_files:
-        console.print("[yellow]Run 'autodoc generate' to create documentation with enriched descriptions[/yellow]")
+        console.print(
+            "[yellow]Run 'autodoc generate' to create documentation with enriched descriptions[/yellow]"
+        )
         console.print("[blue]💡 Use --inline to add docstrings directly to code files[/blue]")
-        console.print("[blue]💡 Use --module-files to generate module-level enrichment files[/blue]")
-    
+        console.print(
+            "[blue]💡 Use --module-files to generate module-level enrichment files[/blue]"
+        )
+
     # Regenerate embeddings if requested
     if regenerate_embeddings:
         console.print("\n[yellow]Regenerating embeddings with enriched content...[/yellow]")
-        
+
         # Create new autodoc instance with config
         autodoc_regen = SimpleAutodoc(config)
         autodoc_regen.entities = autodoc.entities  # Copy entities
-        
+
         # Check which embedder is configured
         if autodoc_regen.chromadb_embedder:
             # Clear existing ChromaDB embeddings
             console.print("[blue]Clearing existing ChromaDB embeddings...[/blue]")
             autodoc_regen.chromadb_embedder.clear_collection()
-            
+
             # Re-embed all entities with enrichment
             embedded_count = await autodoc_regen.chromadb_embedder.embed_entities(
                 autodoc_regen.entities,
                 use_enrichment=True,
-                batch_size=config.embeddings.get("batch_size", 100)
+                batch_size=config.embeddings.get("batch_size", 100),
             )
-            console.print(f"[green]✅ Re-embedded {embedded_count} entities in ChromaDB with enriched content[/green]")
-            
+            console.print(
+                f"[green]✅ Re-embedded {embedded_count} entities in ChromaDB with enriched content[/green]"
+            )
+
         elif autodoc_regen.embedder:
             # Use OpenAI embeddings
             console.print("[blue]Regenerating OpenAI embeddings...[/blue]")
-            
+
             texts = []
             for entity in autodoc_regen.entities:
                 text = f"{entity.type} {entity.name}"
-                
+
                 # Use enriched description
                 cache_key = f"{entity.file_path}:{entity.name}:{entity.line_number}"
                 enrichment = cache.get_enrichment(cache_key)
                 if enrichment and enrichment.get("description"):
                     text += f": {enrichment['description']}"
                     if enrichment.get("key_features"):
-                        text += " Features: " + ", ".join(enrichment['key_features'])
+                        text += " Features: " + ", ".join(enrichment["key_features"])
                 elif entity.docstring:
                     text += f": {entity.docstring}"
-                
+
                 texts.append(text)
-            
+
             # Generate embeddings
             embeddings = await autodoc_regen.embedder.embed_batch(texts)
             for entity, embedding in zip(autodoc_regen.entities, embeddings):
                 entity.embedding = embedding
-            
+
             # Save updated entities
             autodoc_regen.save()
-            
-            console.print(f"[green]✅ Regenerated {len(embeddings)} embeddings with enriched content[/green]")
+
+            console.print(
+                f"[green]✅ Regenerated {len(embeddings)} embeddings with enriched content[/green]"
+            )
         else:
-            console.print("[yellow]No embedder configured - skipping embedding regeneration[/yellow]")
-        
+            console.print(
+                "[yellow]No embedder configured - skipping embedding regeneration[/yellow]"
+            )
+
         console.print("[blue]💡 Use 'autodoc search' to see improved search results[/blue]")
 
 
@@ -1028,22 +1164,23 @@ def graph(clear, visualize):
     """Build code relationship graph database"""
     if not GRAPH_AVAILABLE:
         console.print("[red]Graph functionality not available.[/red]")
-        
+
         # Check if dependencies are installed
         import importlib.util
+
         deps = {
             "matplotlib": "visualization",
-            "plotly": "interactive graphs", 
+            "plotly": "interactive graphs",
             "neo4j": "graph database",
             "networkx": "graph analysis",
-            "pyvis": "network visualization"
+            "pyvis": "network visualization",
         }
-        
+
         missing = []
         for dep, desc in deps.items():
             if importlib.util.find_spec(dep) is None:
                 missing.append(f"{dep} ({desc})")
-        
+
         if missing:
             console.print("[yellow]Missing dependencies:[/yellow]")
             for dep in missing:
@@ -1053,7 +1190,9 @@ def graph(clear, visualize):
             console.print("  # or")
             console.print("  uv pip install matplotlib plotly neo4j networkx pyvis")
         else:
-            console.print("[yellow]All dependencies are installed, but graph import failed.[/yellow]")
+            console.print(
+                "[yellow]All dependencies are installed, but graph import failed.[/yellow]"
+            )
             console.print("\nPossible causes:")
             console.print("  • Neo4j database is not running")
             console.print("  • Import conflicts or version incompatibilities")
@@ -1080,32 +1219,36 @@ def graph(clear, visualize):
             console.print("✅ Cleared existing graph data")
 
         builder.build_from_autodoc(autodoc)
-        
+
         console.print("[green]✅ Code graph database built successfully![/green]")
-        
+
         # Create visualizations if requested
         if visualize:
             console.print("[yellow]Creating graph visualizations...[/yellow]")
             query = CodeGraphQuery()
             visualizer = CodeGraphVisualizer(query)
-            
+
             try:
                 # Create interactive graph
                 visualizer.create_interactive_graph("code_graph.html")
                 console.print("  • Interactive graph: code_graph.html")
-                
+
                 # Create dependency graph
                 visualizer.create_module_dependency_graph("module_dependencies.png")
                 console.print("  • Module dependencies: module_dependencies.png")
-                
+
                 console.print("[green]✅ Visualizations created![/green]")
             except Exception as viz_error:
-                console.print(f"[yellow]Warning: Could not create visualizations: {viz_error}[/yellow]")
+                console.print(
+                    f"[yellow]Warning: Could not create visualizations: {viz_error}[/yellow]"
+                )
             finally:
                 query.close()
         else:
-            console.print("[blue]💡 Use 'autodoc graph --visualize' to create visualizations[/blue]")
-        
+            console.print(
+                "[blue]💡 Use 'autodoc graph --visualize' to create visualizations[/blue]"
+            )
+
         builder.close()
 
     except Exception as e:
@@ -1120,65 +1263,68 @@ def vector(regenerate):
     # Load config to determine embedding provider
     config = AutodocConfig.load()
     autodoc = SimpleAutodoc(config)
-    
+
     # Load existing entities
     autodoc.load()
-    
+
     if not autodoc.entities:
         console.print("[red]No analyzed code found. Run 'autodoc analyze' first.[/red]")
         return
-    
+
     # Check which embedder is available
     if autodoc.chromadb_embedder:
         # Handle ChromaDB embeddings
         console.print("[blue]Using ChromaDB for embeddings[/blue]")
-        
+
         # Get current stats
         stats = autodoc.chromadb_embedder.get_stats()
-        existing_embeddings = stats['total_embeddings']
-        
+        existing_embeddings = stats["total_embeddings"]
+
         if existing_embeddings > 0 and not regenerate:
-            console.print(f"[yellow]Found {existing_embeddings} existing embeddings in ChromaDB.[/yellow]")
+            console.print(
+                f"[yellow]Found {existing_embeddings} existing embeddings in ChromaDB.[/yellow]"
+            )
             console.print(f"[blue]Enriched ratio: {stats['sample_enriched_ratio']:.1%}[/blue]")
             console.print("[blue]💡 Use --regenerate to overwrite existing embeddings[/blue]")
             return
-        
+
         if regenerate and existing_embeddings > 0:
             console.print("[yellow]Clearing existing ChromaDB embeddings...[/yellow]")
             autodoc.chromadb_embedder.clear_collection()
-        
+
         # Run embedding generation asynchronously
         import asyncio
+
         embedded_count = asyncio.run(
             autodoc.chromadb_embedder.embed_entities(
                 autodoc.entities,
                 use_enrichment=True,
-                batch_size=config.embeddings.get("batch_size", 100)
+                batch_size=config.embeddings.get("batch_size", 100),
             )
         )
-        
+
         console.print(f"[green]✅ Embedded {embedded_count} entities in ChromaDB![/green]")
         console.print("[blue]💡 You can now use 'autodoc search' for semantic search[/blue]")
-        
+
     elif autodoc.embedder:
         # Handle OpenAI embeddings (existing code)
         console.print("[blue]Using OpenAI for embeddings[/blue]")
-    
+
     # Check if embeddings already exist
     existing_embeddings = sum(1 for entity in autodoc.entities if entity.embedding is not None)
-    
+
     if existing_embeddings > 0 and not regenerate:
         console.print(f"[yellow]Found {existing_embeddings} existing embeddings.[/yellow]")
         console.print("[blue]💡 Use --regenerate to overwrite existing embeddings[/blue]")
         return
-    
+
     try:
         console.print("[yellow]Generating embeddings for semantic search...[/yellow]")
-        
+
         # Prepare texts for embedding
         texts = []
         entities_to_embed = []
-        
+
         for entity in autodoc.entities:
             if regenerate or entity.embedding is None:
                 text = f"{entity.type} {entity.name}"
@@ -1186,33 +1332,36 @@ def vector(regenerate):
                     text += f": {entity.docstring}"
                 texts.append(text)
                 entities_to_embed.append(entity)
-        
+
         if not texts:
             console.print("[green]✅ All entities already have embeddings![/green]")
             return
-        
+
         console.print(f"Generating embeddings for {len(texts)} entities...")
-        
+
         # Generate embeddings in batches
         import asyncio
+
         embeddings = asyncio.run(autodoc.embedder.embed_batch(texts))
-        
+
         # Assign embeddings to entities
         for entity, embedding in zip(entities_to_embed, embeddings):
             entity.embedding = embedding
-        
+
         # Save updated entities
         autodoc.save()
-        
+
         console.print(f"[green]✅ Generated {len(embeddings)} embeddings![/green]")
         console.print("[blue]💡 You can now use 'autodoc search' for semantic search[/blue]")
-        
+
     except Exception as e:
         console.print(f"[red]Error generating embeddings: {e}[/red]")
-    
+
     else:
         console.print("[red]No embedding provider configured.[/red]")
-        console.print("[yellow]Configure OpenAI API key or set embeddings.provider: chromadb in .autodoc.yml[/yellow]")
+        console.print(
+            "[yellow]Configure OpenAI API key or set embeddings.provider: chromadb in .autodoc.yml[/yellow]"
+        )
 
 
 @cli.command(name="visualize-graph")
@@ -1370,9 +1519,19 @@ def query_graph(entry_points, test_coverage, patterns, complexity, deps, show_al
     type=click.Choice(["markdown", "json"]),
     help="Output format (default: markdown)",
 )
-@click.option("--detailed/--summary", default=True, help="Generate detailed documentation (default) or summary only")
-@click.option("--enrich", is_flag=True, help="Automatically enrich entities before generating documentation")
-@click.option("--inline", is_flag=True, help="Add enriched docstrings directly to code files (requires --enrich)")
+@click.option(
+    "--detailed/--summary",
+    default=True,
+    help="Generate detailed documentation (default) or summary only",
+)
+@click.option(
+    "--enrich", is_flag=True, help="Automatically enrich entities before generating documentation"
+)
+@click.option(
+    "--inline",
+    is_flag=True,
+    help="Add enriched docstrings directly to code files (requires --enrich)",
+)
 def generate(output, output_format, detailed, enrich, inline):
     """Generate comprehensive codebase documentation"""
     # Run async function for enrichment if needed
@@ -1446,74 +1605,75 @@ async def _generate_with_enrichment_async(output, output_format, detailed, inlin
     config = AutodocConfig.load()
     autodoc = SimpleAutodoc(config)
     autodoc.load()
-    
+
     if not autodoc.entities:
         console.print("[red]No analyzed code found. Run 'autodoc analyze' first.[/red]")
         return
-    
+
     # Check API key
     api_key = config.llm.get_api_key()
     if not api_key and config.llm.provider != "ollama":
         console.print(f"[red]No API key found for {config.llm.provider}[/red]")
         console.print("[yellow]Set via environment variable or .autodoc.yml[/yellow]")
         return
-    
+
     console.print("[yellow]Enriching entities before generating documentation...[/yellow]")
-    
+
     # Load cache
     cache = EnrichmentCache()
-    
+
     # Find entities that need enrichment
     entities_to_enrich = []
     for entity in autodoc.entities:
         cache_key = f"{entity.file_path}:{entity.name}:{entity.line_number}"
         if not cache.get_enrichment(cache_key):
             entities_to_enrich.append(entity)
-    
+
     if entities_to_enrich:
         console.print(f"[blue]Enriching {len(entities_to_enrich)} entities...[/blue]")
-        
+
         # Enrich entities
         async with LLMEnricher(config) as enricher:
             try:
                 enriched = await enricher.enrich_entities(entities_to_enrich)
-                
+
                 # Cache results
                 for enriched_entity in enriched:
                     cache_key = f"{enriched_entity.entity.file_path}:{enriched_entity.entity.name}:{enriched_entity.entity.line_number}"
-                    cache.set_enrichment(cache_key, {
-                        "description": enriched_entity.description,
-                        "purpose": enriched_entity.purpose,
-                        "key_features": enriched_entity.key_features,
-                        "complexity_notes": enriched_entity.complexity_notes,
-                        "usage_examples": enriched_entity.usage_examples,
-                        "design_patterns": enriched_entity.design_patterns,
-                        "dependencies": enriched_entity.dependencies
-                    })
-                
+                    cache.set_enrichment(
+                        cache_key,
+                        {
+                            "description": enriched_entity.description,
+                            "purpose": enriched_entity.purpose,
+                            "key_features": enriched_entity.key_features,
+                            "complexity_notes": enriched_entity.complexity_notes,
+                            "usage_examples": enriched_entity.usage_examples,
+                            "design_patterns": enriched_entity.design_patterns,
+                            "dependencies": enriched_entity.dependencies,
+                        },
+                    )
+
                 cache.save_cache()
                 console.print(f"[green]✅ Enriched {len(enriched)} entities[/green]")
-                
+
             except Exception as e:
                 console.print(f"[red]Error during enrichment: {e}[/red]")
                 console.print("[yellow]Continuing with existing enrichments...[/yellow]")
     else:
         console.print("[green]All entities already enriched[/green]")
-    
+
     # Handle inline enrichment if requested
     if inline:
         console.print("[yellow]Adding enriched docstrings inline to code files...[/yellow]")
-        
+
         inline_enricher = InlineEnricher(config)
         inline_results = await inline_enricher.enrich_files_inline(
-            autodoc.entities, 
-            incremental=True, 
-            force=False
+            autodoc.entities, incremental=True, force=False
         )
-        
+
         total_updated = sum(r.updated_docstrings for r in inline_results)
         console.print(f"[green]✅ Updated {total_updated} docstrings inline[/green]")
-    
+
     # Generate documentation
     _generate_documentation_only(output, output_format, detailed)
 
@@ -1521,13 +1681,20 @@ async def _generate_with_enrichment_async(output, output_format, detailed, inlin
 # Backwards compatibility alias
 @cli.command(name="generate-summary", hidden=True)
 @click.option("--output", "-o", help="Output file path")
-@click.option("--format", "output_format", default="markdown", type=click.Choice(["markdown", "json"]))
+@click.option(
+    "--format", "output_format", default="markdown", type=click.Choice(["markdown", "json"])
+)
 def generate_summary_alias(output, output_format):
     """[DEPRECATED] Use 'autodoc generate' instead"""
-    console.print("[yellow]⚠️  'generate-summary' is deprecated. Use 'autodoc generate' instead.[/yellow]")
+    console.print(
+        "[yellow]⚠️  'generate-summary' is deprecated. Use 'autodoc generate' instead.[/yellow]"
+    )
     from click import Context
+
     ctx = Context(generate)
-    return ctx.invoke(generate, output=output or "AUTODOC.md", output_format=output_format, detailed=False)
+    return ctx.invoke(
+        generate, output=output or "AUTODOC.md", output_format=output_format, detailed=False
+    )
 
 
 @cli.command(name="local-graph")
