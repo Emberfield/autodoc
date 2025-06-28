@@ -25,3 +25,32 @@ autodoc_enrichment_cache.json
 team_export.zip
 autodoc_export.zip
 *.export.zip
+
+# Visualization outputs
+*.html
+*.png
+!docs/images/*.png  # Keep documentation images if any
+
+# Backup files
+*.backup
+*.bak
+*~
+
+# Rust build artifacts
+rust-core/target/
+
+# Vendored dependencies (if needed)
+# lib/
+
+# One-time scripts
+create_autodoc.sh
+
+# Large data files
+comprehensive_data.json
+
+# IDE and OS files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo

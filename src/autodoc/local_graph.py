@@ -78,8 +78,8 @@ class LocalCodeGraph:
 
             tooltip = f"""
             File: {file_path}
-            Functions: {len(content['functions'])}
-            Classes: {len(content['classes'])}
+            Functions: {len(content["functions"])}
+            Classes: {len(content["classes"])}
             Total entities: {total_entities}
             """
 
@@ -146,10 +146,10 @@ class LocalCodeGraph:
                     base_size -= 3  # Smaller for private entities
 
                 tooltip = f"""
-                Type: {entity['type']}
-                Name: {entity['name']}
-                File: {Path(entity['file_path']).name}
-                Line: {entity['line_number']}
+                Type: {entity["type"]}
+                Name: {entity["name"]}
+                File: {Path(entity["file_path"]).name}
+                Line: {entity["line_number"]}
                 """
                 if entity.get("docstring"):
                     tooltip += f"\nDescription: {entity['docstring'][:100]}..."

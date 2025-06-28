@@ -18,12 +18,13 @@ class TestSimpleAutodoc:
     async def test_analyze_directory(self, sample_project_dir, monkeypatch):
         # Clear API key to ensure no embedder
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        
+
         # Create config with no embeddings
         from autodoc.config import AutodocConfig
+
         config = AutodocConfig()
         config.embeddings["provider"] = "none"
-        
+
         autodoc = SimpleAutodoc(config=config)
         summary = await autodoc.analyze_directory(sample_project_dir)
 
@@ -36,9 +37,10 @@ class TestSimpleAutodoc:
     @pytest.mark.asyncio
     async def test_analyze_with_embeddings(self, sample_project_dir, monkeypatch):
         monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-        
+
         # Create config with OpenAI as provider
         from autodoc.config import AutodocConfig
+
         config = AutodocConfig()
         config.embeddings["provider"] = "openai"
 
@@ -212,9 +214,10 @@ class TestSimpleAutodoc:
     def test_initialization_with_api_key(self, monkeypatch):
         """Test that autodoc initializes correctly with OpenAI API key"""
         monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-        
+
         # Create config with OpenAI as provider
         from autodoc.config import AutodocConfig
+
         config = AutodocConfig()
         config.embeddings["provider"] = "openai"
 

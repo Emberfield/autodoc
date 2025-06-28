@@ -325,7 +325,6 @@ class CodeAnalyzer:
                 and not entity.name.startswith("test_")
                 and not entity.name.startswith("_")
             ):
-
                 key_functions.append(
                     {
                         "name": entity.name,
@@ -539,7 +538,7 @@ class MarkdownFormatter:
                     else:
                         # Legacy string format
                         md.append(f"- `{cmd}`")
-                        
+
             # Add Makefile targets if available
             if build.get("makefile_categories"):
                 md.append("\n**Makefile Targets by Category**:")

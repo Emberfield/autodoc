@@ -153,9 +153,7 @@ class TestCodeGraphQuery:
         mock_driver, mock_session = create_mock_neo4j_driver()
 
         # Mock the query result to return entry points
-        mock_result = [
-            {"name": "main", "file": "cli.py", "description": "Main entry point"}
-        ]
+        mock_result = [{"name": "main", "file": "cli.py", "description": "Main entry point"}]
         mock_session.run.return_value = mock_result
 
         with patch("autodoc.graph.GraphDatabase.driver", return_value=mock_driver):

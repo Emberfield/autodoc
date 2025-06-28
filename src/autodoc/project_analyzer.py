@@ -102,28 +102,29 @@ class ProjectAnalyzer:
         if makefile_path.exists():
             try:
                 from .makefile_parser import MakefileParser
+
                 parser = MakefileParser(makefile_path)
                 makefile_targets = parser.parse()
                 categorized = parser.get_categorized_targets()
-                
+
                 # Store all Makefile commands with descriptions
                 build_info["makefile_targets"] = makefile_targets
                 build_info["makefile_categories"] = categorized
-                
+
                 # Add categorized commands to build_commands
                 for category, targets in categorized.items():
                     for target in targets:
                         cmd_entry = {
                             "command": target["command"],
                             "description": target["description"],
-                            "category": category
+                            "category": category,
                         }
                         build_info["build_commands"].append(cmd_entry)
             except Exception as e:
                 print(f"Error parsing Makefile: {e}")
                 # Fall back to simple string search
                 build_info["build_commands"].append("make build")
-        
+
         # Also check for common build commands in documentation
         common_commands = [
             "python -m build",
@@ -142,7 +143,10 @@ class ProjectAnalyzer:
                     with open(cwd / doc_file, "r", encoding="utf-8", errors="ignore") as f:
                         content = f.read()
                         for cmd in common_commands:
-                            if cmd in content and cmd not in [bc["command"] if isinstance(bc, dict) else bc for bc in build_info["build_commands"]]:
+                            if cmd in content and cmd not in [
+                                bc["command"] if isinstance(bc, dict) else bc
+                                for bc in build_info["build_commands"]
+                            ]:
                                 build_info["build_commands"].append(cmd)
                 except Exception:
                     pass
