@@ -4,10 +4,13 @@ LLM-powered code enrichment for autodoc.
 """
 
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 import aiohttp
+
+log = logging.getLogger(__name__)
 
 from .analyzer import CodeEntity
 from .config import AutodocConfig
@@ -53,14 +56,9 @@ class LLMEnricher:
 
         api_key = self.llm_config.get_api_key()
         if not api_key:
-            from rich.console import Console
-
-            console = Console()
-            console.print(
-                f"[yellow]Warning: No API key found for {self.llm_config.provider}. Skipping enrichment.[/yellow]"
-            )
-            console.print(
-                f"[dim]To generate enrichments, set {self.llm_config.provider.upper()}_API_KEY environment variable[/dim]"
+            log.warning(
+                f"No API key found for {self.llm_config.provider}. Skipping enrichment. "
+                f"To generate enrichments, set {self.llm_config.provider.upper()}_API_KEY environment variable"
             )
             return []
 
@@ -87,7 +85,7 @@ class LLMEnricher:
                 if enriched_entity:
                     enriched.append(enriched_entity)
             except Exception as e:
-                print(f"Error enriching {entity.name}: {e}")
+                log.error(f"Error enriching {entity.name}: {e}")
 
         return enriched
 
@@ -104,7 +102,7 @@ class LLMEnricher:
         elif self.llm_config.provider == "ollama":
             response = await self._call_ollama(prompt)
         else:
-            print(f"Unsupported LLM provider: {self.llm_config.provider}")
+            log.warning(f"Unsupported LLM provider: {self.llm_config.provider}")
             return None
 
         if response:
@@ -183,10 +181,10 @@ Please provide:
                     return json.loads(content)
                 else:
                     error = await resp.text()
-                    print(f"OpenAI API error: {error}")
+                    log.error(f"OpenAI API error: {error}")
                     return None
-        except Exception as e:
-            print(f"Error calling OpenAI: {e}")
+        except (aiohttp.ClientError, json.JSONDecodeError) as e:
+            log.error(f"Error calling OpenAI or parsing response: {e}")
             return None
 
     async def _call_anthropic(self, prompt: str) -> Optional[Dict[str, Any]]:
@@ -219,10 +217,10 @@ Please provide:
                     return json.loads(content)
                 else:
                     error = await resp.text()
-                    print(f"Anthropic API error: {error}")
+                    log.error(f"Anthropic API error: {error}")
                     return None
-        except Exception as e:
-            print(f"Error calling Anthropic: {e}")
+        except (aiohttp.ClientError, json.JSONDecodeError) as e:
+            log.error(f"Error calling Anthropic or parsing response: {e}")
             return None
 
     async def _call_ollama(self, prompt: str) -> Optional[Dict[str, Any]]:
@@ -250,13 +248,14 @@ Please provide:
                     json_match = re.search(r"\{.*\}", response, re.DOTALL)
                     if json_match:
                         return json.loads(json_match.group())
+                    log.error(f"Ollama API: No JSON found in response: {response}")
                     return None
                 else:
                     error = await resp.text()
-                    print(f"Ollama API error: {error}")
+                    log.error(f"Ollama API error: {error}")
                     return None
-        except Exception as e:
-            print(f"Error calling Ollama: {e}")
+        except (aiohttp.ClientError, json.JSONDecodeError) as e:
+            log.error(f"Error calling Ollama or parsing response: {e}")
             return None
 
     def _parse_enrichment_response(
@@ -291,7 +290,7 @@ class EnrichmentCache:
         except FileNotFoundError:
             self._cache = {}
         except Exception as e:
-            print(f"Error loading enrichment cache: {e}")
+            log.error(f"Error loading enrichment cache: {e}")
             self._cache = {}
 
     def save_cache(self):
