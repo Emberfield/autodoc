@@ -1,6 +1,7 @@
 // High-performance Rust core for Autodoc
 
 use pyo3::prelude::*;
+use pyo3::exceptions::PyException;
 use std::path::Path;
 
 pub mod analyzer;
@@ -10,13 +11,15 @@ pub mod parser;
 use entity::CodeEntity;
 use analyzer::RustAnalyzer;
 
+// Create a custom Python exception for Rust errors
+pyo3::create_exception!(autodoc_core, RustAnalysisError, PyException);
+
 /// Main entry point for Python bindings
 #[pymodule]
 fn autodoc_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyCodeEntity>()?;
     m.add_class::<PyRustAnalyzer>()?;
-    m.add_function(wrap_pyfunction!(analyze_directory_rust, m)?)?;
-    m.add_function(wrap_pyfunction!(analyze_file_rust, m)?)?;
+    m.add("RustAnalysisError", m.py().get_type_bound::<RustAnalysisError>())?;
     Ok(())
 }
 
@@ -24,35 +27,35 @@ fn autodoc_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
 #[pyclass(name = "CodeEntity")]
 #[derive(Clone)]
 pub struct PyCodeEntity {
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub entity_type: String,
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub name: String,
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub file_path: String,
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub line_number: usize,
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub docstring: Option<String>,
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub code: String,
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub is_async: bool,
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub decorators: Vec<String>,
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub parameters: Vec<String>,
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub return_type: Option<String>,
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub is_internal: bool,
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub is_api_endpoint: bool,
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub route_path: Option<String>,
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub http_methods: Vec<String>,
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub complexity_score: u32,
 }
 
@@ -114,54 +117,34 @@ pub struct PyRustAnalyzer {
 #[pymethods]
 impl PyRustAnalyzer {
     #[new]
-    fn new() -> Self {
+    #[pyo3(signature = (exclude_patterns=None))]
+    fn new(exclude_patterns: Option<Vec<String>>) -> Self {
+        let mut analyzer = RustAnalyzer::new();
+        if let Some(patterns) = exclude_patterns {
+            let pattern_refs: Vec<&str> = patterns.iter().map(|s| s.as_str()).collect();
+            analyzer = analyzer.with_excludes(pattern_refs);
+        }
         PyRustAnalyzer {
-            analyzer: RustAnalyzer::new(),
+            analyzer,
         }
     }
 
     fn analyze_file(&self, file_path: &str) -> PyResult<Vec<PyCodeEntity>> {
         let entities = self.analyzer.analyze_file(Path::new(file_path))
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+            .map_err(|e| RustAnalysisError::new_err(e.to_string()))?;
         
         Ok(entities.into_iter().map(|e| e.into()).collect())
     }
 
     fn analyze_directory(&self, dir_path: &str) -> PyResult<Vec<PyCodeEntity>> {
         let entities = self.analyzer.analyze_directory(Path::new(dir_path))
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+            .map_err(|e| RustAnalysisError::new_err(e.to_string()))?;
         
         Ok(entities.into_iter().map(|e| e.into()).collect())
     }
 }
 
-/// Direct function for analyzing a directory
-#[pyfunction]
-#[pyo3(signature = (path, exclude_patterns=None))]
-fn analyze_directory_rust(path: &str, exclude_patterns: Option<Vec<String>>) -> PyResult<Vec<PyCodeEntity>> {
-    let mut analyzer = RustAnalyzer::new();
-    
-    // Add custom exclude patterns if provided
-    if let Some(patterns) = exclude_patterns {
-        let pattern_refs: Vec<&str> = patterns.iter().map(|s| s.as_str()).collect();
-        analyzer = analyzer.with_excludes(pattern_refs);
-    }
-    
-    let entities = analyzer.analyze_directory(Path::new(path))
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
-    
-    Ok(entities.into_iter().map(|e| e.into()).collect())
-}
 
-/// Direct function for analyzing a single file
-#[pyfunction]
-fn analyze_file_rust(path: &str) -> PyResult<Vec<PyCodeEntity>> {
-    let analyzer = RustAnalyzer::new();
-    let entities = analyzer.analyze_file(Path::new(path))
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
-    
-    Ok(entities.into_iter().map(|e| e.into()).collect())
-}
 
 impl From<CodeEntity> for PyCodeEntity {
     fn from(entity: CodeEntity) -> Self {

@@ -49,7 +49,7 @@ impl RustAnalyzer {
     pub fn analyze_directory(&self, dir_path: &Path) -> Result<Vec<CodeEntity>> {
         let python_files = self.collect_python_files(dir_path)?;
         
-        println!("Found {} Python files to analyze", python_files.len());
+        
         
         // Process files in parallel using Rayon
         let results: Vec<Result<Vec<CodeEntity>>> = python_files
@@ -68,14 +68,7 @@ impl RustAnalyzer {
             }
         }
         
-        if !errors.is_empty() {
-            eprintln!("Errors during analysis:");
-            for error in &errors {
-                eprintln!("  - {}", error);
-            }
-        }
         
-        println!("Successfully analyzed {} entities", all_entities.len());
         
         Ok(all_entities)
     }
