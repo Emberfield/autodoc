@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 import aiohttp
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 log = logging.getLogger(__name__)
 
@@ -149,6 +150,12 @@ Please provide:
 
         return prompt
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=10),
+        retry=retry_if_exception_type(aiohttp.ClientError),
+        reraise=True,
+    )
     async def _call_openai(self, prompt: str) -> Optional[Dict[str, Any]]:
         """Call OpenAI API for enrichment."""
         if not self._session:
@@ -187,6 +194,12 @@ Please provide:
             log.error(f"Error calling OpenAI or parsing response: {e}")
             return None
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=10),
+        retry=retry_if_exception_type(aiohttp.ClientError),
+        reraise=True,
+    )
     async def _call_anthropic(self, prompt: str) -> Optional[Dict[str, Any]]:
         """Call Anthropic API for enrichment."""
         if not self._session:
@@ -223,6 +236,12 @@ Please provide:
             log.error(f"Error calling Anthropic or parsing response: {e}")
             return None
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=10),
+        retry=retry_if_exception_type(aiohttp.ClientError),
+        reraise=True,
+    )
     async def _call_ollama(self, prompt: str) -> Optional[Dict[str, Any]]:
         """Call Ollama API for enrichment."""
         if not self._session:
@@ -299,7 +318,7 @@ class EnrichmentCache:
             with open(self.cache_file, "w") as f:
                 json.dump(self._cache, f, indent=2)
         except Exception as e:
-            print(f"Error saving enrichment cache: {e}")
+            log.error(f"Error saving enrichment cache: {e}")
 
     def get_enrichment(self, entity_key: str) -> Optional[Dict[str, Any]]:
         """Get cached enrichment for an entity."""
