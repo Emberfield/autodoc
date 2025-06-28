@@ -4,6 +4,7 @@ Graph database integration for Autodoc using Neo4j.
 Visualizes relationships between code entities.
 """
 
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,8 +14,10 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import plotly.graph_objects as go
 from neo4j import Driver, GraphDatabase
-from neo4j.exceptions import ServiceUnavailable
+from neo4j.exceptions import ServiceUnavailable, ClientError, DatabaseError
 from pyvis.network import Network
+
+log = logging.getLogger(__name__)
 
 from .analyzer import CodeEntity
 from .autodoc import SimpleAutodoc
@@ -57,9 +60,12 @@ class CodeGraphBuilder:
             # Test connection
             with self.driver.session() as session:
                 session.run("RETURN 1")
-            print(f"Connected to Neo4j at {self.config.uri}")
-        except (ServiceUnavailable, Exception) as e:
-            print(f"Warning: Neo4j not available at {self.config.uri}: {e}")
+            log.info(f"Connected to Neo4j at {self.config.uri}")
+        except ServiceUnavailable as e:
+            log.warning(f"Neo4j not available at {self.config.uri}: {e}")
+            self.driver = None
+        except Exception as e:
+            log.error(f"Error connecting to Neo4j at {self.config.uri}: {e}")
             self.driver = None
 
     def close(self):
@@ -74,12 +80,12 @@ class CodeGraphBuilder:
 
         with self.driver.session() as session:
             session.run("MATCH (n) DETACH DELETE n")
-            print("Cleared existing graph data")
+            log.info("Cleared existing graph data")
 
     def build_from_autodoc(self, autodoc: SimpleAutodoc):
         """Build graph from analyzed code entities"""
         if not self.driver:
-            print("No database connection available")
+            log.warning("No database connection available")
             return
 
         # First, clear existing data
@@ -110,7 +116,7 @@ class CodeGraphBuilder:
             # Create relationships between entities
             self._create_entity_relationships(session, autodoc)
 
-        print(f"Created graph with {len(files_map)} files and {len(autodoc.entities)} entities")
+        log.info(f"Created graph with {len(files_map)} files and {len(autodoc.entities)} entities")
 
     def _create_indexes(self):
         """Create indexes for better query performance"""
@@ -125,8 +131,8 @@ class CodeGraphBuilder:
             for constraint in constraints:
                 try:
                     session.run(constraint)
-                except Exception as e:
-                    print(f"Note: {e}")
+                except (ClientError, DatabaseError) as e:
+                    log.info(f"Note: {e}") # Often means constraint/index already exists
 
             # Create indexes
             indexes = [
@@ -139,8 +145,8 @@ class CodeGraphBuilder:
             for index in indexes:
                 try:
                     session.run(index)
-                except Exception as e:
-                    print(f"Note: {e}")
+                except (ClientError, DatabaseError) as e:
+                    log.info(f"Note: {e}") # Often means constraint/index already exists
 
     def _create_file_node(self, session, file_path: str):
         """Create a File node"""
@@ -297,8 +303,8 @@ class CodeGraphBuilder:
 
         try:
             session.run(query, file_path=file_path, module=module, imported=imported)
-        except Exception as e:
-            print(f"Could not create import relationship: {e}")
+        except (ClientError, DatabaseError) as e:
+            log.error(f"Could not create import relationship: {e}")
 
     def _create_method_relationship(
         self, session, class_entity: CodeEntity, method_entity: CodeEntity
@@ -318,8 +324,8 @@ class CodeGraphBuilder:
                 method_name=method_entity.name,
                 file_path=class_entity.file_path,
             )
-        except Exception as e:
-            print(f"Could not create method relationship: {e}")
+        except (ClientError, DatabaseError) as e:
+            log.error(f"Could not create method relationship: {e}")
 
 
 class CodeGraphQuery:
@@ -337,7 +343,7 @@ class CodeGraphQuery:
                 self.config.uri, auth=(self.config.username, self.config.password)
             )
         except (ServiceUnavailable, Exception) as e:
-            print(f"Warning: Neo4j not available at {self.config.uri}: {e}")
+            log.warning(f"Neo4j not available at {self.config.uri}: {e}")
             self.driver = None
 
     def close(self):
@@ -489,7 +495,7 @@ class CodeGraphVisualizer:
     def create_interactive_graph(self, output_file: str = "code_graph.html"):
         """Create an interactive graph visualization using pyvis"""
         if not self.query.driver:
-            print("No database connection available")
+            log.warning("No database connection available")
             return
 
         # Create network
@@ -606,12 +612,12 @@ class CodeGraphVisualizer:
         )
 
         net.save_graph(output_file)
-        print(f"Interactive graph saved to {output_file}")
+        log.info(f"Interactive graph saved to {output_file}")
 
     def create_module_dependency_graph(self, output_file: str = "module_dependencies.png"):
         """Create a module dependency graph"""
         if not self.query.driver:
-            print("No database connection available")
+            log.warning("No database connection available")
             return
 
         # Create directed graph
@@ -648,14 +654,14 @@ class CodeGraphVisualizer:
         plt.savefig(output_file, dpi=300, bbox_inches="tight")
         plt.close()
 
-        print(f"Module dependency graph saved to {output_file}")
+        log.info(f"Module dependency graph saved to {output_file}")
 
     def create_complexity_heatmap(self, output_file: str = "complexity_heatmap.html"):
         """Create a complexity heatmap using plotly"""
         complexity_data = self.query.get_module_complexity()
 
         if not complexity_data:
-            print("No complexity data available")
+            log.warning("No complexity data available")
             return
 
         # Prepare data
@@ -697,7 +703,7 @@ class CodeGraphVisualizer:
 
         # Save
         fig.write_html(output_file)
-        print(f"Complexity heatmap saved to {output_file}")
+        log.info(f"Complexity heatmap saved to {output_file}")
 
 
 def main():
@@ -707,46 +713,48 @@ def main():
     autodoc.load("autodoc_cache.json")
 
     if not autodoc.entities:
-        print("No autodoc cache found. Run 'autodoc analyze' first.")
+        log.warning("No autodoc cache found. Run 'autodoc analyze' first.")
         return
 
     # Build graph
-    print("Building code graph...")
+    log.info("Building code graph...")
     builder = CodeGraphBuilder()
     builder.build_from_autodoc(autodoc)
     builder.close()
 
     # Query graph
-    print("\nQuerying graph...")
+    log.info(
+Querying graph...")
     query = CodeGraphQuery()
 
     # Find entry points
     entry_points = query.find_entry_points()
     if entry_points:
-        print("\nEntry Points:")
+        log.info("\nEntry Points:")
         for ep in entry_points:
-            print(f"  - {ep['name']} in {ep['file']}")
+            log.info(f"  - {ep['name']} in {ep['file']}")
 
     # Check test coverage
     coverage = query.find_test_coverage()
     if coverage:
-        print("\nTest Coverage:")
-        print(f"  - Total functions: {coverage.get('total_functions', 0)}")
-        print(f"  - Total tests: {coverage.get('total_tests', 0)}")
-        print(f"  - Tested modules: {len(coverage.get('tested_modules', []))}")
+        log.info("\nTest Coverage:")
+        log.info(f"  - Total functions: {coverage.get('total_functions', 0)}")
+        log.info(f"  - Total tests: {coverage.get('total_tests', 0)}")
+        log.info(f"  - Tested modules: {len(coverage.get('tested_modules', []))}")
 
     # Find patterns
     patterns = query.find_code_patterns()
     if patterns:
-        print("\nCode Patterns:")
+        log.info("\nCode Patterns:")
         for pattern_type, instances in patterns.items():
             if instances:
-                print(f"  {pattern_type}:")
+                log.info(f"  {pattern_type}:")
                 for instance in instances[:3]:
-                    print(f"    - {instance['name']}")
+                    log.info(f"    - {instance['name']}")
 
     # Create visualizations
-    print("\nCreating visualizations...")
+    log.info(
+Creating visualizations...")
     visualizer = CodeGraphVisualizer(query)
     visualizer.create_interactive_graph()
     visualizer.create_module_dependency_graph()
@@ -754,7 +762,7 @@ def main():
 
     query.close()
 
-    print("\nDone! Check the generated visualization files.")
+    log.info("\nDone! Check the generated visualization files.")
 
 
 if __name__ == "__main__":
