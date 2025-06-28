@@ -16,6 +16,7 @@ from aiohttp_cors import setup as setup_cors
 from .analyzer import CodeEntity, EnhancedASTAnalyzer
 from .autodoc import SimpleAutodoc
 from .graph import CodeGraphBuilder, CodeGraphQuery, GraphConfig
+from .ot_engine import OTWebSocketInterface
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -36,6 +37,7 @@ class APIServer:
         self.graph_query: Optional[CodeGraphQuery] = None
         self.graph_config = graph_config or GraphConfig.from_env()
         self.websockets: Set[web.WebSocketResponse] = set() # Store active WebSocket connections
+        self.ot_interface: OTWebSocketInterface = OTWebSocketInterface() # OT Engine interface
 
         # Setup CORS
         self._setup_cors()
@@ -561,10 +563,18 @@ class APIServer:
             async for msg in ws:
                 if msg.type == WSMsgType.TEXT:
                     data = json.loads(msg.data)
-                    logger.info(f"Received WebSocket message from {ws.peername}: {data}")
-                    # Process incoming operation (e.g., text changes, cursor movements)
-                    # For now, just echo back or broadcast
-                    await self.broadcast(data, sender_ws=ws)
+                    document_id = data.get("document_id", "default_doc") # Assuming a document_id
+                    operation_data = data.get("operation")
+
+                    if operation_data:
+                        try:
+                            # Handle the operation using the OT engine
+                            result = await self.ot_interface.handle_operation(document_id, operation_data)
+                            # Broadcast the updated document state or transformed operation
+                            await self.broadcast(result, sender_ws=ws)
+                        except Exception as ot_e:
+                            logger.error(f"OT Engine error: {ot_e}")
+                            await self.send_json(ws, {"error": str(ot_e)})
                 elif msg.type == WSMsgType.ERROR:
                     logger.error(f"WebSocket connection error: {ws.exception()}")
         except Exception as e:
