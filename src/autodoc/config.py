@@ -3,24 +3,26 @@
 Configuration management for autodoc.
 """
 
+import logging
 import os
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 import yaml
+from pydantic import BaseModel, Field
+
+log = logging.getLogger(__name__)
 
 
-@dataclass
-class LLMConfig:
+class LLMConfig(BaseModel):
     """Configuration for LLM providers."""
 
-    provider: str = "openai"  # openai, anthropic, ollama
-    model: str = "gpt-4o-mini"  # model to use for enrichment
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None  # for custom endpoints
-    temperature: float = 0.3
-    max_tokens: int = 500
+    provider: str = Field("openai", description="LLM provider (openai, anthropic, ollama)")
+    model: str = Field("gpt-4o-mini", description="Model to use for enrichment")
+    api_key: Optional[str] = Field(None, description="API key for the LLM provider")
+    base_url: Optional[str] = Field(None, description="Base URL for custom LLM endpoints")
+    temperature: float = Field(0.3, description="Temperature for LLM generation")
+    max_tokens: int = Field(500, description="Maximum tokens for LLM generation")
 
     def get_api_key(self) -> Optional[str]:
         """Get API key from config or environment."""
@@ -36,75 +38,67 @@ class LLMConfig:
         return None
 
 
-@dataclass
-class EnrichmentConfig:
+class EnrichmentConfig(BaseModel):
     """Configuration for code enrichment."""
 
-    enabled: bool = True
-    batch_size: int = 10  # Number of entities to process at once
-    cache_enrichments: bool = True
-    include_examples: bool = True
-    analyze_complexity: bool = True
-    detect_patterns: bool = True
-    languages: list = field(default_factory=lambda: ["python", "typescript"])
+    enabled: bool = Field(True, description="Enable or disable code enrichment")
+    batch_size: int = Field(10, description="Number of entities to process at once")
+    cache_enrichments: bool = Field(True, description="Cache enriched entities to disk")
+    include_examples: bool = Field(True, description="Include usage examples in enrichment")
+    analyze_complexity: bool = Field(True, description="Analyze code complexity during enrichment")
+    detect_patterns: bool = Field(True, description="Detect design patterns during enrichment")
+    languages: List[str] = Field(default_factory=lambda: ["python", "typescript"], description="List of languages to enrich")
 
 
-@dataclass
-class AutodocConfig:
+class AutodocConfig(BaseModel):
     """Main configuration for autodoc."""
 
-    # LLM settings
-    llm: LLMConfig = field(default_factory=LLMConfig)
-
-    # Enrichment settings
-    enrichment: EnrichmentConfig = field(default_factory=EnrichmentConfig)
-
-    # Embedding settings
-    embeddings: Dict[str, Any] = field(
+    llm: LLMConfig = Field(default_factory=LLMConfig, description="LLM settings")
+    enrichment: EnrichmentConfig = Field(default_factory=EnrichmentConfig, description="Enrichment settings")
+    embeddings: Dict[str, Any] = Field(
         default_factory=lambda: {
-            "provider": "openai",  # Options: openai, chromadb
-            "model": "text-embedding-3-small",  # For OpenAI
-            "chromadb_model": "all-MiniLM-L6-v2",  # For ChromaDB local embeddings
+            "provider": "openai",
+            "model": "text-embedding-3-small",
+            "chromadb_model": "all-MiniLM-L6-v2",
             "dimensions": 1536,
             "batch_size": 100,
-            "persist_directory": ".autodoc_chromadb",  # For ChromaDB
-        }
+            "persist_directory": ".autodoc_chromadb",
+        },
+        description="Embedding settings",
     )
-
-    # Graph settings
-    graph: Dict[str, Any] = field(
+    graph: Dict[str, Any] = Field(
         default_factory=lambda: {
             "neo4j_uri": "bolt://localhost:7687",
             "neo4j_username": "neo4j",
             "neo4j_password": "password",
             "enrich_nodes": True,
-        }
+        },
+        description="Graph settings",
     )
-
-    # Analysis settings
-    analysis: Dict[str, Any] = field(
+    analysis: Dict[str, Any] = Field(
         default_factory=lambda: {
             "ignore_patterns": ["__pycache__", "*.pyc", ".git", "node_modules"],
-            "max_file_size": 1048576,  # 1MB
+            "max_file_size": 1048576,
             "follow_imports": True,
             "analyze_dependencies": True,
-        }
+        },
+        description="Analysis settings",
     )
-
-    # Output settings
-    output: Dict[str, Any] = field(
+    output: Dict[str, Any] = Field(
         default_factory=lambda: {
             "format": "markdown",
             "include_code_snippets": True,
             "max_description_length": 500,
             "group_by_feature": True,
-        }
+        },
+        description="Output settings",
     )
 
     @classmethod
     def load(cls, config_path: Optional[Path] = None) -> "AutodocConfig":
         """Load configuration from file or defaults."""
         config_data = {}
+        config_file = None
 
         # Look for config file
         if config_path and config_path.exists():
@@ -112,93 +106,35 @@ class AutodocConfig:
         else:
             # Search for config in common locations
             for filename in [".autodoc.yml", ".autodoc.yaml", "autodoc.yml", "autodoc.yaml"]:
-                config_file = Path.cwd() / filename
-                if config_file.exists():
+                temp_config_file = Path.cwd() / filename
+                if temp_config_file.exists():
+                    config_file = temp_config_file
                     break
-            else:
-                # No config file found, use defaults
+
+        if config_file:
+            try:
+                with open(config_file, "r") as f:
+                    config_data = yaml.safe_load(f) or {}
+            except Exception as e:
+                log.error(f"Error loading config file {config_file}: {e}")
+                # If there's an error loading the file, proceed with defaults
                 return cls()
 
-        # Load config file
-        try:
-            with open(config_file, "r") as f:
-                config_data = yaml.safe_load(f) or {}
-        except Exception as e:
-            print(f"Warning: Error loading config file {config_file}: {e}")
-            return cls()
-
-        # Parse config data
-        config = cls()
-
-        # LLM settings
-        if "llm" in config_data:
-            llm_data = config_data["llm"]
-            config.llm = LLMConfig(
-                provider=llm_data.get("provider", "openai"),
-                model=llm_data.get("model", "gpt-4o-mini"),
-                api_key=llm_data.get("api_key"),
-                base_url=llm_data.get("base_url"),
-                temperature=llm_data.get("temperature", 0.3),
-                max_tokens=llm_data.get("max_tokens", 500),
-            )
-
-        # Enrichment settings
-        if "enrichment" in config_data:
-            enr_data = config_data["enrichment"]
-            config.enrichment = EnrichmentConfig(
-                enabled=enr_data.get("enabled", True),
-                batch_size=enr_data.get("batch_size", 10),
-                cache_enrichments=enr_data.get("cache_enrichments", True),
-                include_examples=enr_data.get("include_examples", True),
-                analyze_complexity=enr_data.get("analyze_complexity", True),
-                detect_patterns=enr_data.get("detect_patterns", True),
-                languages=enr_data.get("languages", ["python", "typescript"]),
-            )
-
-        # Other settings
-        if "embeddings" in config_data:
-            config.embeddings.update(config_data["embeddings"])
-        if "graph" in config_data:
-            config.graph.update(config_data["graph"])
-        if "analysis" in config_data:
-            config.analysis.update(config_data["analysis"])
-        if "output" in config_data:
-            config.output.update(config_data["output"])
-
-        return config
+        return cls.parse_obj(config_data)
 
     def save(self, config_path: Optional[Path] = None):
         """Save configuration to file."""
         if not config_path:
             config_path = Path.cwd() / ".autodoc.yml"
 
-        config_data = {
-            "llm": {
-                "provider": self.llm.provider,
-                "model": self.llm.model,
-                "temperature": self.llm.temperature,
-                "max_tokens": self.llm.max_tokens,
-            },
-            "enrichment": {
-                "enabled": self.enrichment.enabled,
-                "batch_size": self.enrichment.batch_size,
-                "cache_enrichments": self.enrichment.cache_enrichments,
-                "include_examples": self.enrichment.include_examples,
-                "analyze_complexity": self.enrichment.analyze_complexity,
-                "detect_patterns": self.enrichment.detect_patterns,
-                "languages": self.enrichment.languages,
-            },
-            "embeddings": self.embeddings,
-            "graph": self.graph,
-            "analysis": self.analysis,
-            "output": self.output,
-        }
+        # Use model_dump to get a dictionary representation of the config
+        config_data = self.model_dump(exclude_none=True, exclude_defaults=True)
 
-        # Don't save API keys
+        # Handle API key and base_url separately if they are set
         if self.llm.api_key:
-            config_data["llm"]["api_key"] = "# Set via environment variable or add here"
+            config_data.setdefault("llm", {})["api_key"] = "# Set via environment variable or add here"
         if self.llm.base_url:
-            config_data["llm"]["base_url"] = self.llm.base_url
+            config_data.setdefault("llm", {})["base_url"] = self.llm.base_url
 
         with open(config_path, "w") as f:
             yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
