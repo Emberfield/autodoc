@@ -4,8 +4,11 @@ Creates visualizations directly from autodoc entities.
 """
 
 import json
+import logging
 from collections import defaultdict
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 try:
     import matplotlib.pyplot as plt  # noqa: F401
@@ -32,19 +35,19 @@ class LocalCodeGraph:
             with open(self.entities_file, "r") as f:
                 data = json.load(f)
                 self.entities = data.get("entities", [])
-            print(f"Loaded {len(self.entities)} entities from {self.entities_file}")
+            log.info(f"Loaded {len(self.entities)} entities from {self.entities_file}")
         except FileNotFoundError:
-            print(f"❌ Cache file {self.entities_file} not found. Run 'make analyze' first.")
+            log.error(f"Cache file {self.entities_file} not found. Run 'make analyze' first.")
             self.entities = []
 
     def create_file_dependency_graph(self, output_file: str = "file_dependencies.html"):
         """Create an interactive file dependency graph"""
         if not GRAPH_DEPS_AVAILABLE:
-            print("❌ Graph dependencies not available. Run 'make setup-graph'")
+            log.warning("Graph dependencies not available. Run 'make setup-graph'")
             return
 
         if not self.entities:
-            print("❌ No entities loaded")
+            log.warning("No entities loaded")
             return
 
         # Group entities by file
@@ -107,17 +110,17 @@ class LocalCodeGraph:
 
         # Save the graph
         net.save_graph(output_file)
-        print(f"✅ File dependency graph saved to {output_file}")
+        log.info(f"File dependency graph saved to {output_file}")
         return output_file
 
     def create_entity_network(self, output_file: str = "entity_network.html"):
         """Create a network of code entities"""
         if not GRAPH_DEPS_AVAILABLE:
-            print("❌ Graph dependencies not available. Run 'make setup-graph'")
+            log.warning("Graph dependencies not available. Run 'make setup-graph'")
             return
 
         if not self.entities:
-            print("❌ No entities loaded")
+            log.warning("No entities loaded")
             return
 
         net = Network(height="800px", width="100%", bgcolor="#222222", font_color="white")
@@ -178,13 +181,13 @@ class LocalCodeGraph:
                         net.add_edge(node1, node2, color="#666666", width=1, alpha=0.3)
 
         net.save_graph(output_file)
-        print(f"✅ Entity network saved to {output_file}")
+        log.info(f"Entity network saved to {output_file}")
         return output_file
 
     def create_module_stats(self):
         """Print module statistics"""
         if not self.entities:
-            print("❌ No entities loaded")
+            log.warning("No entities loaded")
             return
 
         # Group by file
@@ -200,8 +203,8 @@ class LocalCodeGraph:
             elif entity["type"] == "class":
                 files[file_path]["classes"] += 1
 
-        print("\n📊 Module Statistics:")
-        print("=" * 50)
+        log.info("\n📊 Module Statistics:")
+        log.info("=" * 50)
 
         # Sort by total entities
         sorted_files = sorted(
@@ -213,7 +216,7 @@ class LocalCodeGraph:
         for file_path, stats in sorted_files[:10]:  # Top 10
             total = stats["functions"] + stats["classes"] + stats["test_functions"]
             file_name = Path(file_path).name
-            print(
+            log.info(
                 f"📁 {file_name:25} | Functions: {stats['functions']:3} | Classes: {stats['classes']:2} | Tests: {stats['test_functions']:3} | Total: {total:3}"
             )
 
@@ -223,12 +226,12 @@ class LocalCodeGraph:
         total_classes = sum(f["classes"] for f in files.values())
         total_tests = sum(f["test_functions"] for f in files.values())
 
-        print("\n📈 Summary:")
-        print(f"   Total files: {total_files}")
-        print(f"   Total functions: {total_functions}")
-        print(f"   Total classes: {total_classes}")
-        print(f"   Total test functions: {total_tests}")
-        print(
+        log.info("\n📈 Summary:")
+        log.info(f"   Total files: {total_files}")
+        log.info(f"   Total functions: {total_functions}")
+        log.info(f"   Total classes: {total_classes}")
+        log.info(f"   Total test functions: {total_tests}")
+        log.info(
             f"   Average entities per file: {(total_functions + total_classes + total_tests) / total_files:.1f}"
         )
 
@@ -242,12 +245,12 @@ class LocalCodeGraph:
 
 def main():
     """Run local graph visualization"""
-    print("🎨 Creating local code graphs (no Neo4j required)...")
+    log.info("🎨 Creating local code graphs (no Neo4j required)...")
 
     graph = LocalCodeGraph()
 
     if not graph.entities:
-        print("No entities found. Make sure to run 'make analyze' first.")
+        log.warning("No entities found. Make sure to run 'make analyze' first.")
         return
 
     # Create visualizations
@@ -263,19 +266,19 @@ def main():
             if file2:
                 files_created.append(file2)
         except Exception as e:
-            print(f"Error creating visualizations: {e}")
+            log.error(f"Error creating visualizations: {e}")
     else:
-        print("⚠️  Graph visualization dependencies not available.")
-        print("   Run 'make setup-graph' to install them.")
+        log.warning("⚠️  Graph visualization dependencies not available.")
+        log.warning("   Run 'make setup-graph' to install them.")
 
     # Always show stats
     graph.create_module_stats()
 
     if files_created:
-        print(f"\n✅ Created {len(files_created)} visualization files:")
+        log.info(f"\n✅ Created {len(files_created)} visualization files:")
         for file in files_created:
-            print(f"   📄 {file}")
-        print("\nOpen these HTML files in your browser to view the interactive graphs!")
+            log.info(f"   📄 {file}")
+        log.info("\nOpen these HTML files in your browser to view the interactive graphs!")
 
 
 if __name__ == "__main__":
