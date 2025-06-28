@@ -13,6 +13,8 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 
 log = logging.getLogger(__name__)
 
+log = logging.getLogger(__name__)
+
 from .analyzer import CodeEntity
 from .config import AutodocConfig
 
