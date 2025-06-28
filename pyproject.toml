@@ -41,6 +41,7 @@ dependencies = [
     "chromadb>=0.4.0",
     "sentence-transformers>=2.2.0",
     "watchdog>=3.0.0",
+    "tenacity>=8.2.0",
 ]
 
 [project.optional-dependencies]
