@@ -76,7 +76,7 @@ dev-dependencies = [
     "ipython>=8.18.0",
     "twine>=6.1.0",
     "keyrings-google-artifactregistry-auth>=1.1.2",
-    "maturin>=1.0.0",
+    
 ]
 
 [tool.uv.sources]
