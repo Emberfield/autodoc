@@ -551,37 +551,55 @@ class APIServer:
                 {"error": f"Failed to get API endpoints: {str(e)}"}, status=500
             )
 
+    MAX_WEBSOCKET_CONNECTIONS = 100
+
     async def websocket_handler(self, request: web.Request) -> web.WebSocketResponse:
         """Handles WebSocket connections for real-time collaboration."""
-        ws = web.WebSocketResponse()
+        # Check connection limit
+        if len(self.websockets) >= self.MAX_WEBSOCKET_CONNECTIONS:
+            logger.warning(f"Max WebSocket connections reached ({self.MAX_WEBSOCKET_CONNECTIONS})")
+            return web.Response(status=503, text="Too many connections")
+
+        ws = web.WebSocketResponse(heartbeat=30.0)  # 30 second heartbeat
         await ws.prepare(request)
 
         self.websockets.add(ws)
-        logger.info(f"WebSocket connection established: {ws.peername}. Total active connections: {len(self.websockets)}")
+        client_info = request.remote or "unknown"
+        logger.info(f"WebSocket connection established from {client_info}. Total: {len(self.websockets)}")
 
         try:
             async for msg in ws:
                 if msg.type == WSMsgType.TEXT:
-                    data = json.loads(msg.data)
-                    document_id = data.get("document_id", "default_doc") # Assuming a document_id
+                    try:
+                        data = json.loads(msg.data)
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"Invalid JSON from client: {e}")
+                        await self.send_json(ws, {"error": "Invalid JSON format"})
+                        continue
+
+                    document_id = data.get("document_id", "default_doc")
                     operation_data = data.get("operation")
 
                     if operation_data:
                         try:
-                            # Handle the operation using the OT engine
                             result = await self.ot_interface.handle_operation(document_id, operation_data)
-                            # Broadcast the updated document state or transformed operation
                             await self.broadcast(result, sender_ws=ws)
+                        except ValueError as ve:
+                            # Input validation errors from OT engine
+                            logger.warning(f"Invalid operation from client: {ve}")
+                            await self.send_json(ws, {"error": f"Invalid operation: {ve}"})
                         except Exception as ot_e:
-                            logger.error(f"OT Engine error: {ot_e}")
-                            await self.send_json(ws, {"error": str(ot_e)})
+                            logger.error(f"OT Engine error: {ot_e}", exc_info=True)
+                            await self.send_json(ws, {"error": "Internal server error"})
                 elif msg.type == WSMsgType.ERROR:
-                    logger.error(f"WebSocket connection error: {ws.exception()}")
+                    logger.error(f"WebSocket error: {ws.exception()}")
+                elif msg.type == WSMsgType.CLOSE:
+                    break
         except Exception as e:
-            logger.error(f"WebSocket handler error: {e}")
+            logger.error(f"WebSocket handler error: {e}", exc_info=True)
         finally:
             self.websockets.discard(ws)
-            logger.info(f"WebSocket connection closed. Total active connections: {len(self.websockets)}")
+            logger.info(f"WebSocket closed from {client_info}. Total: {len(self.websockets)}")
         return ws
 
     async def broadcast(self, message: Dict[str, Any], sender_ws: Optional[web.WebSocketResponse] = None):

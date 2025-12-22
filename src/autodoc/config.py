@@ -29,11 +29,15 @@ class LLMConfig(BaseModel):
         if self.api_key:
             return self.api_key
 
-        # Check environment variables
-        if self.provider == "openai":
-            return os.getenv("OPENAI_API_KEY")
-        elif self.provider == "anthropic":
-            return os.getenv("ANTHROPIC_API_KEY")
+        # Check environment variables based on provider
+        env_var_map = {
+            "openai": "OPENAI_API_KEY",
+            "anthropic": "ANTHROPIC_API_KEY",
+            "ollama": "OLLAMA_API_KEY",  # Optional for local Ollama
+        }
+        env_var = env_var_map.get(self.provider)
+        if env_var:
+            return os.getenv(env_var)
 
         return None
 
@@ -68,9 +72,9 @@ class AutodocConfig(BaseModel):
     )
     graph: Dict[str, Any] = Field(
         default_factory=lambda: {
-            "neo4j_uri": "bolt://localhost:7687",
-            "neo4j_username": "neo4j",
-            "neo4j_password": "password",
+            "neo4j_uri": os.getenv("NEO4J_URI", "bolt://localhost:7687"),
+            "neo4j_username": os.getenv("NEO4J_USERNAME", "neo4j"),
+            "neo4j_password": os.getenv("NEO4J_PASSWORD"),  # No default - must be set
             "enrich_nodes": True,
         },
         description="Graph settings",
@@ -120,7 +124,7 @@ class AutodocConfig(BaseModel):
                 # If there's an error loading the file, proceed with defaults
                 return cls()
 
-        return cls.parse_obj(config_data)
+        return cls.model_validate(config_data)
 
     def save(self, config_path: Optional[Path] = None):
         """Save configuration to file."""

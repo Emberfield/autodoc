@@ -5,6 +5,7 @@ LLM-powered code enrichment for autodoc.
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -262,8 +263,6 @@ Please provide:
                     result = await resp.json()
                     response = result.get("response", "")
                     # Extract JSON from response
-                    import re
-
                     json_match = re.search(r"\{.*\}", response, re.DOTALL)
                     if json_match:
                         return json.loads(json_match.group())

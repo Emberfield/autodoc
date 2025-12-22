@@ -321,35 +321,101 @@ class OTEngine:
 class OTWebSocketInterface:
     """
     Interface for integrating OT engine with WebSocket layer.
-    
+
     This provides the methods that Gemini's WebSocket implementation
     will call to handle operations.
     """
-    
-    def __init__(self):
+
+    def __init__(self, max_engines: int = 1000):
         self.engines: dict[str, OTEngine] = {}  # document_id -> engine
-    
+        self._access_order: list[str] = []  # Track access order for LRU cleanup
+        self._max_engines = max_engines
+
     def get_engine(self, document_id: str) -> OTEngine:
         """Get or create an engine for a document."""
         if document_id not in self.engines:
+            # Cleanup old engines if we've hit the limit
+            if len(self.engines) >= self._max_engines:
+                self._cleanup_oldest_engine()
             self.engines[document_id] = OTEngine()
+
+        # Update access order for LRU tracking
+        if document_id in self._access_order:
+            self._access_order.remove(document_id)
+        self._access_order.append(document_id)
+
         return self.engines[document_id]
-    
+
+    def _cleanup_oldest_engine(self) -> None:
+        """Remove the least recently used engine."""
+        if self._access_order:
+            oldest_id = self._access_order.pop(0)
+            if oldest_id in self.engines:
+                del self.engines[oldest_id]
+                log.debug(f"Cleaned up OT engine for document: {oldest_id}")
+
+    def remove_engine(self, document_id: str) -> None:
+        """Explicitly remove an engine for a document."""
+        if document_id in self.engines:
+            del self.engines[document_id]
+        if document_id in self._access_order:
+            self._access_order.remove(document_id)
+
+    def _validate_operation_data(self, operation_data: dict) -> None:
+        """Validate operation data has required fields."""
+        op_type = operation_data.get("type")
+        if not op_type:
+            raise ValueError("Missing required field: 'type'")
+
+        if op_type not in ("insert", "delete"):
+            raise ValueError(f"Unknown operation type: {op_type}")
+
+        # Check required fields
+        required_fields = ["position", "client_id"]
+        if op_type == "insert":
+            required_fields.append("text")
+        elif op_type == "delete":
+            required_fields.append("length")
+
+        missing = [f for f in required_fields if f not in operation_data]
+        if missing:
+            raise ValueError(f"Missing required fields: {missing}")
+
+        # Validate types
+        position = operation_data.get("position")
+        if not isinstance(position, int) or position < 0:
+            raise ValueError(f"Invalid position: {position} (must be non-negative integer)")
+
+        if op_type == "insert":
+            text = operation_data.get("text")
+            if not isinstance(text, str):
+                raise ValueError(f"Invalid text: must be a string")
+        elif op_type == "delete":
+            length = operation_data.get("length")
+            if not isinstance(length, int) or length < 0:
+                raise ValueError(f"Invalid length: {length} (must be non-negative integer)")
+
     async def handle_operation(self, document_id: str, operation_data: dict) -> dict:
         """
         Handle an incoming operation from WebSocket.
-        
+
         Args:
             document_id: ID of the document being edited
             operation_data: Dict containing operation details
-            
+
         Returns:
             Dict with transformed operation and new document state
+
+        Raises:
+            ValueError: If operation_data is invalid
         """
+        # Validate input
+        self._validate_operation_data(operation_data)
+
         engine = self.get_engine(document_id)
-        
+
         # Parse operation from data
-        op_type = operation_data.get("type")
+        op_type = operation_data["type"]
         if op_type == "insert":
             operation = InsertOp(
                 position=operation_data["position"],
@@ -357,16 +423,14 @@ class OTWebSocketInterface:
                 client_id=operation_data["client_id"],
                 version=operation_data.get("version", 0)
             )
-        elif op_type == "delete":
+        else:  # delete
             operation = DeleteOp(
                 position=operation_data["position"],
                 length=operation_data["length"],
                 client_id=operation_data["client_id"],
                 version=operation_data.get("version", 0)
             )
-        else:
-            raise ValueError(f"Unknown operation type: {op_type}")
-        
+
         # Apply the operation
         if operation_data.get("is_local", False):
             transformed_op, new_text = engine.apply_local(operation)
