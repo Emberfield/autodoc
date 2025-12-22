@@ -2118,7 +2118,8 @@ def pack_build(name, build_all, output, embeddings, summary, dry_run):
                 # Rough estimate: pack info + entity names/docstrings
                 entity_text = ""
                 for e in entities_in_pack[:50]:  # Sample first 50
-                    entity_text += f"{e.get('name', '')} {e.get('docstring', '')[:100]} "
+                    docstring = e.get('docstring') or ''  # Handle None docstrings
+                    entity_text += f"{e.get('name', '')} {docstring[:100]} "
                 estimated_input_tokens = len(entity_text.split()) * 2  # Rough token estimate
                 estimated_input_tokens += 500  # System prompt overhead
 
