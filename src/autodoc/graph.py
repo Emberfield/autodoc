@@ -723,8 +723,7 @@ def main():
     builder.close()
 
     # Query graph
-    log.info(
-Querying graph...")
+    log.info("Querying graph...")
     query = CodeGraphQuery()
 
     # Find entry points
@@ -753,8 +752,7 @@ Querying graph...")
                     log.info(f"    - {instance['name']}")
 
     # Create visualizations
-    log.info(
-Creating visualizations...")
+    log.info("Creating visualizations...")
     visualizer = CodeGraphVisualizer(query)
     visualizer.create_interactive_graph()
     visualizer.create_module_dependency_graph()
