@@ -1971,7 +1971,8 @@ def pack_info(name, as_json, deps):
 @click.option("--embeddings", "-e", is_flag=True, help="Create ChromaDB embeddings for semantic search")
 @click.option("--summary", "-s", is_flag=True, help="Generate LLM summary for each pack")
 @click.option("--dry-run", is_flag=True, help="Show what would be processed without making API calls")
-def pack_build(name, build_all, output, embeddings, summary, dry_run):
+@click.option("--no-cache", is_flag=True, help="Force regeneration of LLM summaries (ignore cache)")
+def pack_build(name, build_all, output, embeddings, summary, dry_run, no_cache):
     """Build/index a context pack for searching.
 
     This matches files to the pack's patterns and creates embeddings
@@ -2157,35 +2158,53 @@ def pack_build(name, build_all, output, embeddings, summary, dry_run):
         llm_summary = None
         if summary:
             try:
-                from .enrichment import LLMEnricher
+                from .enrichment import LLMEnricher, PackSummaryCache
 
-                console.print(f"  [dim]Generating LLM summary...[/dim]")
+                # Check cache first (unless --no-cache)
+                summary_cache = PackSummaryCache()
+                file_paths = [str(f) for f in matched_files]
+                cached_summary = None
+                if not no_cache:
+                    cached_summary = summary_cache.get_summary(
+                        pack_config.name, entities_in_pack, file_paths
+                    )
 
-                async def generate_summary():
-                    async with LLMEnricher(config) as enricher:
-                        result = await enricher.generate_pack_summary(
-                            pack_name=pack_config.name,
-                            pack_display_name=pack_config.display_name,
-                            pack_description=pack_config.description,
-                            entities=entities_in_pack,
-                            files=[str(f) for f in matched_files],
-                            tables=pack_config.tables,
-                            dependencies=pack_config.dependencies,
-                        )
-                        # Return both the summary and token usage
-                        return result, enricher.get_token_usage()
-
-                llm_summary, token_usage = asyncio.get_event_loop().run_until_complete(generate_summary())
-                if llm_summary:
-                    console.print(f"  [green]✓ Generated LLM summary[/green]")
-                    # Display token usage
-                    if token_usage.get("total_tokens", 0) > 0:
-                        console.print(
-                            f"    [dim]Tokens used: {token_usage['input_tokens']} input + "
-                            f"{token_usage['output_tokens']} output = {token_usage['total_tokens']} total[/dim]"
-                        )
+                if cached_summary:
+                    llm_summary = cached_summary
+                    console.print(f"  [green]✓ Using cached LLM summary (content unchanged)[/green]")
                 else:
-                    console.print(f"  [yellow]⚠ LLM summary generation failed (check API key)[/yellow]")
+                    console.print(f"  [dim]Generating LLM summary...[/dim]")
+
+                    async def generate_summary():
+                        async with LLMEnricher(config) as enricher:
+                            result = await enricher.generate_pack_summary(
+                                pack_name=pack_config.name,
+                                pack_display_name=pack_config.display_name,
+                                pack_description=pack_config.description,
+                                entities=entities_in_pack,
+                                files=file_paths,
+                                tables=pack_config.tables,
+                                dependencies=pack_config.dependencies,
+                            )
+                            # Return both the summary and token usage
+                            return result, enricher.get_token_usage()
+
+                    llm_summary, token_usage = asyncio.get_event_loop().run_until_complete(generate_summary())
+                    if llm_summary:
+                        console.print(f"  [green]✓ Generated LLM summary[/green]")
+                        # Display token usage
+                        if token_usage.get("total_tokens", 0) > 0:
+                            console.print(
+                                f"    [dim]Tokens used: {token_usage['input_tokens']} input + "
+                                f"{token_usage['output_tokens']} output = {token_usage['total_tokens']} total[/dim]"
+                            )
+                        # Cache the summary
+                        summary_cache.set_summary(
+                            pack_config.name, llm_summary, entities_in_pack, file_paths
+                        )
+                        summary_cache.save_cache()
+                    else:
+                        console.print(f"  [yellow]⚠ LLM summary generation failed (check API key)[/yellow]")
             except Exception as e:
                 console.print(f"  [yellow]⚠ Error generating summary: {e}[/yellow]")
 

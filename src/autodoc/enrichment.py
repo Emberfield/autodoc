@@ -443,6 +443,83 @@ Respond in JSON format with the keys above."""
         return response
 
 
+class PackSummaryCache:
+    """Cache for pack LLM summaries to avoid regenerating if content unchanged."""
+
+    def __init__(self, cache_file: str = ".autodoc/pack_summary_cache.json"):
+        self.cache_file = cache_file
+        self._cache: Dict[str, Dict[str, Any]] = {}
+        self._load_cache()
+
+    def _load_cache(self):
+        """Load cache from file."""
+        try:
+            with open(self.cache_file, "r") as f:
+                self._cache = json.load(f)
+        except FileNotFoundError:
+            self._cache = {}
+        except Exception as e:
+            log.error(f"Error loading pack summary cache: {e}")
+            self._cache = {}
+
+    def save_cache(self):
+        """Save cache to file."""
+        import os
+
+        os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
+        try:
+            with open(self.cache_file, "w") as f:
+                json.dump(self._cache, f, indent=2)
+        except Exception as e:
+            log.error(f"Error saving pack summary cache: {e}")
+
+    def _compute_content_hash(self, entities: List[Dict], files: List[str]) -> str:
+        """Compute hash of pack content for cache key."""
+        import hashlib
+
+        # Create a deterministic string from entities and files
+        content = ""
+        for e in sorted(entities, key=lambda x: x.get("name", "")):
+            content += f"{e.get('name', '')}:{e.get('docstring', '')}:{e.get('code', '')[:200]}"
+        for f in sorted(files):
+            content += f
+        return hashlib.md5(content.encode()).hexdigest()
+
+    def get_summary(
+        self, pack_name: str, entities: List[Dict], files: List[str]
+    ) -> Optional[Dict[str, Any]]:
+        """Get cached summary if content hasn't changed."""
+        content_hash = self._compute_content_hash(entities, files)
+        cached = self._cache.get(pack_name)
+        if cached and cached.get("content_hash") == content_hash:
+            log.info(f"Using cached summary for pack '{pack_name}'")
+            return cached.get("summary")
+        return None
+
+    def set_summary(
+        self,
+        pack_name: str,
+        summary: Dict[str, Any],
+        entities: List[Dict],
+        files: List[str],
+    ):
+        """Cache summary with content hash."""
+        content_hash = self._compute_content_hash(entities, files)
+        self._cache[pack_name] = {
+            "content_hash": content_hash,
+            "summary": summary,
+            "cached_at": __import__("datetime").datetime.now().isoformat(),
+        }
+
+    def clear(self, pack_name: Optional[str] = None):
+        """Clear cache for a specific pack or all packs."""
+        if pack_name:
+            self._cache.pop(pack_name, None)
+        else:
+            self._cache = {}
+        self.save_cache()
+
+
 class EnrichmentCache:
     """Cache for enriched entities."""
 
