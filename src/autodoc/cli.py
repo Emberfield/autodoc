@@ -2603,6 +2603,311 @@ def pack_auto_generate(save, output_json, min_files):
 
 
 # =============================================================================
+# Impact Analysis Command
+# =============================================================================
+
+
+@cli.command("impact")
+@click.argument("files", nargs=-1, required=True)
+@click.option("--json", "output_json", is_flag=True, help="Output as JSON for programmatic use")
+@click.option("--pack", "-p", multiple=True, help="Limit analysis to specific packs")
+def impact_analysis(files, output_json, pack):
+    """Analyze the impact of file changes on context packs.
+
+    Given a list of changed files, shows which packs and entities might be affected.
+    Useful for CI/CD pipelines to understand change scope.
+
+    Examples:
+        autodoc impact src/auth/login.py
+        autodoc impact src/auth/*.py --json
+        autodoc impact $(git diff --name-only HEAD~1) --pack authentication
+    """
+    from pathlib import Path as PathLib
+    import fnmatch
+
+    config = AutodocConfig.load()
+
+    if not config.context_packs:
+        if output_json:
+            print(json.dumps({"error": "No context packs configured", "affected_packs": []}))
+        else:
+            console.print("[yellow]No context packs configured. Run 'autodoc pack auto-generate --save' first.[/yellow]")
+        return
+
+    # Normalize file paths
+    changed_files = [str(PathLib(f).resolve()) for f in files]
+    base_path = PathLib.cwd()
+
+    # Filter packs if specified
+    packs_to_analyze = config.context_packs
+    if pack:
+        packs_to_analyze = [p for p in config.context_packs if p.name in pack]
+        if not packs_to_analyze:
+            if output_json:
+                print(json.dumps({"error": f"Packs not found: {list(pack)}", "affected_packs": []}))
+            else:
+                console.print(f"[red]Packs not found: {list(pack)}[/red]")
+            return
+
+    affected_packs = []
+
+    for pack_config in packs_to_analyze:
+        # Check if any changed file matches this pack's patterns
+        matching_files = []
+        for changed_file in changed_files:
+            for pattern in pack_config.files:
+                # Try multiple matching strategies
+                try:
+                    file_path = PathLib(changed_file)
+                    # Relative path matching
+                    try:
+                        rel_path = file_path.relative_to(base_path)
+                        if fnmatch.fnmatch(str(rel_path), pattern):
+                            matching_files.append(str(rel_path))
+                            break
+                    except ValueError:
+                        pass
+                    # Absolute path matching
+                    if fnmatch.fnmatch(str(file_path), f"*{pattern}"):
+                        matching_files.append(changed_file)
+                        break
+                    # PathLib.match
+                    if file_path.match(pattern):
+                        matching_files.append(changed_file)
+                        break
+                except Exception:
+                    pass
+
+        if matching_files:
+            # Load pack data to find affected entities
+            pack_file = PathLib(f".autodoc/packs/{pack_config.name}.json")
+            affected_entities = []
+
+            if pack_file.exists():
+                with open(pack_file) as f:
+                    pack_data = json.load(f)
+                    entities = pack_data.get("entities", [])
+
+                    for entity in entities:
+                        entity_file = entity.get("file_path", entity.get("file", ""))
+                        for mf in matching_files:
+                            if mf in entity_file or entity_file.endswith(mf.lstrip("*")):
+                                affected_entities.append({
+                                    "type": entity.get("entity_type", "unknown"),
+                                    "name": entity.get("name", "unknown"),
+                                    "file": entity_file,
+                                    "line": entity.get("start_line", 0),
+                                })
+                                break
+
+            affected_packs.append({
+                "name": pack_config.name,
+                "display_name": pack_config.display_name,
+                "security_level": pack_config.security_level,
+                "matching_files": list(set(matching_files)),
+                "affected_entities": affected_entities,
+                "entity_count": len(affected_entities),
+            })
+
+    # JSON output
+    if output_json:
+        output = {
+            "changed_files": list(files),
+            "affected_packs": affected_packs,
+            "total_packs_affected": len(affected_packs),
+            "total_entities_affected": sum(p["entity_count"] for p in affected_packs),
+        }
+        print(json.dumps(output, indent=2))
+        return
+
+    # Rich console output
+    if not affected_packs:
+        console.print("[green]No context packs affected by these changes.[/green]")
+        return
+
+    console.print(f"\n[bold]Impact Analysis for {len(files)} changed file(s):[/bold]\n")
+
+    for pack_info in affected_packs:
+        security_badge = ""
+        if pack_info["security_level"] == "critical":
+            security_badge = " [red]⚠ CRITICAL[/red]"
+        elif pack_info["security_level"] == "high":
+            security_badge = " [yellow]⚠ HIGH[/yellow]"
+
+        console.print(f"[cyan]{pack_info['name']}[/cyan]: {pack_info['display_name']}{security_badge}")
+        console.print(f"  [dim]Files affected: {len(pack_info['matching_files'])}[/dim]")
+        console.print(f"  [dim]Entities affected: {pack_info['entity_count']}[/dim]")
+
+        if pack_info["affected_entities"][:5]:
+            for entity in pack_info["affected_entities"][:5]:
+                console.print(f"    • {entity['type']} [bold]{entity['name']}[/bold] ({entity['file']}:{entity['line']})")
+            if len(pack_info["affected_entities"]) > 5:
+                console.print(f"    [dim]... and {len(pack_info['affected_entities']) - 5} more[/dim]")
+        console.print()
+
+    # Summary
+    total_entities = sum(p["entity_count"] for p in affected_packs)
+    critical_packs = [p for p in affected_packs if p["security_level"] == "critical"]
+    if critical_packs:
+        console.print(f"[red]⚠ {len(critical_packs)} CRITICAL pack(s) affected![/red]")
+
+    console.print(f"\n[bold]Summary:[/bold] {len(affected_packs)} pack(s), {total_entities} entity/entities affected")
+
+
+@pack.command("status")
+@click.option("--json", "output_json", is_flag=True, help="Output as JSON for programmatic use")
+def pack_status(output_json):
+    """Show indexing status for all context packs.
+
+    Displays which packs have been built, their entity counts,
+    and whether they have embeddings or LLM summaries.
+    """
+    from pathlib import Path as PathLib
+
+    config = AutodocConfig.load()
+
+    if not config.context_packs:
+        if output_json:
+            print(json.dumps({"error": "No context packs configured", "packs": []}))
+        else:
+            console.print("[yellow]No context packs configured. Run 'autodoc pack auto-generate --save' first.[/yellow]")
+        return
+
+    pack_statuses = []
+    packs_dir = PathLib(".autodoc/packs")
+
+    for pack_config in config.context_packs:
+        pack_file = packs_dir / f"{pack_config.name}.json"
+        chromadb_dir = packs_dir / f"{pack_config.name}_chromadb"
+
+        status = {
+            "name": pack_config.name,
+            "display_name": pack_config.display_name,
+            "indexed": pack_file.exists(),
+            "has_embeddings": chromadb_dir.exists(),
+            "has_summary": False,
+            "entity_count": 0,
+            "file_count": 0,
+        }
+
+        if pack_file.exists():
+            try:
+                with open(pack_file) as f:
+                    pack_data = json.load(f)
+                    status["entity_count"] = len(pack_data.get("entities", []))
+                    status["file_count"] = len(pack_data.get("files", []))
+                    status["has_summary"] = pack_data.get("llm_summary") is not None
+            except Exception:
+                pass
+
+        pack_statuses.append(status)
+
+    if output_json:
+        output = {
+            "packs": pack_statuses,
+            "total": len(pack_statuses),
+            "indexed": sum(1 for p in pack_statuses if p["indexed"]),
+            "with_embeddings": sum(1 for p in pack_statuses if p["has_embeddings"]),
+            "with_summaries": sum(1 for p in pack_statuses if p["has_summary"]),
+        }
+        print(json.dumps(output, indent=2))
+        return
+
+    # Rich console output
+    console.print("\n[bold]Pack Status:[/bold]\n")
+
+    for status in pack_statuses:
+        indexed_badge = "[green]✓[/green]" if status["indexed"] else "[red]✗[/red]"
+        embed_badge = "[green]E[/green]" if status["has_embeddings"] else "[dim]-[/dim]"
+        summary_badge = "[green]S[/green]" if status["has_summary"] else "[dim]-[/dim]"
+
+        console.print(
+            f"  {indexed_badge} {embed_badge} {summary_badge} "
+            f"[cyan]{status['name']}[/cyan] "
+            f"({status['entity_count']} entities, {status['file_count']} files)"
+        )
+
+    console.print("\n[dim]Legend: ✓=indexed, E=embeddings, S=summary[/dim]")
+
+    indexed_count = sum(1 for p in pack_statuses if p["indexed"])
+    console.print(f"\n[bold]Total:[/bold] {indexed_count}/{len(pack_statuses)} packs indexed")
+
+
+@pack.command("deps")
+@click.argument("name")
+@click.option("--json", "output_json", is_flag=True, help="Output as JSON for programmatic use")
+@click.option("--transitive", "-t", is_flag=True, help="Include transitive dependencies")
+def pack_deps(name, output_json, transitive):
+    """Show dependencies for a context pack.
+
+    Displays which other packs this pack depends on,
+    and which packs depend on this one.
+    """
+    config = AutodocConfig.load()
+    pack_config = config.get_pack(name)
+
+    if not pack_config:
+        if output_json:
+            print(json.dumps({"error": f"Pack '{name}' not found"}))
+        else:
+            console.print(f"[red]Pack '{name}' not found.[/red]")
+        return
+
+    # Direct dependencies
+    direct_deps = pack_config.dependencies
+
+    # Transitive dependencies
+    all_deps = []
+    if transitive:
+        resolved = config.resolve_pack_dependencies(name)
+        all_deps = [p.name for p in resolved if p.name != name]
+
+    # Reverse dependencies (who depends on this pack)
+    dependents = []
+    for p in config.context_packs:
+        if name in p.dependencies:
+            dependents.append(p.name)
+
+    if output_json:
+        output = {
+            "pack": name,
+            "direct_dependencies": direct_deps,
+            "transitive_dependencies": all_deps if transitive else None,
+            "dependents": dependents,
+        }
+        print(json.dumps(output, indent=2))
+        return
+
+    # Rich console output
+    console.print(f"\n[bold]Dependencies for {pack_config.display_name}:[/bold]\n")
+
+    if direct_deps:
+        console.print("[cyan]Direct dependencies:[/cyan]")
+        for dep in direct_deps:
+            dep_pack = config.get_pack(dep)
+            display = dep_pack.display_name if dep_pack else dep
+            console.print(f"  → {dep} ({display})")
+    else:
+        console.print("[dim]No direct dependencies[/dim]")
+
+    if transitive and all_deps:
+        console.print(f"\n[cyan]All dependencies (transitive):[/cyan]")
+        for dep in all_deps:
+            dep_pack = config.get_pack(dep)
+            display = dep_pack.display_name if dep_pack else dep
+            console.print(f"  → {dep} ({display})")
+
+    if dependents:
+        console.print(f"\n[cyan]Dependents (packs that depend on this):[/cyan]")
+        for dep in dependents:
+            dep_pack = config.get_pack(dep)
+            display = dep_pack.display_name if dep_pack else dep
+            console.print(f"  ← {dep} ({display})")
+    else:
+        console.print("\n[dim]No packs depend on this one[/dim]")
+
+
+# =============================================================================
 # MCP Server Command
 # =============================================================================
 
