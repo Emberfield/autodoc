@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Autodoc is an AI-powered code intelligence tool that analyzes Python codebases (for now) and enables semantic search using OpenAI embeddings. It parses Python files using AST (Abstract Syntax Tree) to extract functions and classes, then generates embeddings for intelligent code search.
+Autodoc is an AI-powered code intelligence tool that analyzes Python and TypeScript codebases, enabling semantic search using local ChromaDB embeddings or OpenAI. It parses code using AST analysis to extract functions and classes, groups them into context packs for feature-based organization, and provides an MCP server for AI assistant integration.
 
 ## Project documentation
 
@@ -62,6 +62,48 @@ uv build
 make build
 ```
 
+### Context Pack Commands
+```bash
+# Auto-detect and suggest packs based on codebase structure
+autodoc pack auto-generate --save
+
+# List all defined context packs
+autodoc pack list
+
+# Build a pack with embeddings (for semantic search)
+autodoc pack build auth --embeddings
+
+# Build all packs with AI summaries
+autodoc pack build --all --embeddings --summary
+
+# Search within a specific pack
+autodoc pack query auth "user authentication flow"
+
+# Check what changed since last index
+autodoc pack diff auth
+
+# Show pack dependencies
+autodoc pack deps auth --transitive
+
+# Check indexing status
+autodoc pack status
+```
+
+### Impact Analysis
+```bash
+# Analyze how file changes affect context packs
+autodoc impact api/auth.py api/users.py --json
+```
+
+### MCP Server
+```bash
+# Start MCP server for AI assistant integration
+autodoc mcp-server
+
+# Available tools: pack_list, pack_info, pack_query, pack_files,
+# pack_entities, impact_analysis, pack_status, pack_deps, pack_diff
+```
+
 ### Graph Commands (Optional)
 ```bash
 # Build code relationship graph
@@ -99,13 +141,17 @@ make test-graph
 
 ### Core Components
 
-1. **SimpleASTAnalyzer** (src/autodoc/cli.py:35-64): Parses Python files to extract code entities (functions and classes) using Python's AST module.
+1. **SimpleASTAnalyzer** (src/autodoc/analyzer.py): Parses Python files to extract code entities (functions and classes) using Python's AST module.
 
-2. **OpenAIEmbedder** (src/autodoc/cli.py:67-94): Handles embedding generation using OpenAI's text-embedding-3-small model for semantic search capabilities.
+2. **ChromaDBEmbedder** (src/autodoc/chromadb_embedder.py): Handles embedding generation using local sentence-transformers for free semantic search.
 
-3. **SimpleAutodoc** (src/autodoc/cli.py:97-297): Main orchestrator that combines analysis and embedding to provide code intelligence features. Manages entity storage and search functionality.
+3. **SimpleAutodoc** (src/autodoc/cli.py): Main orchestrator that combines analysis and embedding. Manages entity storage and search functionality.
 
-4. **CLI Interface** (src/autodoc/cli.py:200-274): Click-based command-line interface providing analyze, search, and check commands.
+4. **AutodocConfig** (src/autodoc/config.py): Pydantic-based configuration with LLMConfig, EmbeddingsConfig, CostControlConfig, and ContextPackConfig.
+
+5. **MCP Server** (src/autodoc/mcp_server.py): FastMCP-based server providing 9 tools for AI assistant integration.
+
+6. **CLI Interface** (src/autodoc/cli.py): Click-based command-line interface with commands for analyze, search, pack management, and impact analysis.
 
 ### Data Flow
 
@@ -122,9 +168,32 @@ make test-graph
 
 ## Configuration
 
-- OpenAI API key should be set in `.env` file as `OPENAI_API_KEY=sk-...`
-- The tool automatically loads environment variables using python-dotenv
-- Cache is stored as `autodoc_cache.json` in the working directory
+Configuration is stored in `.autodoc.yaml`:
+
+```yaml
+llm:
+  provider: anthropic  # or openai, ollama
+  model: claude-sonnet-4-20250514
+
+embeddings:
+  provider: chromadb  # Free local embeddings, no API key needed
+  chromadb_model: all-MiniLM-L6-v2
+
+cost_control:
+  summary_model: claude-3-haiku-20240307  # Cheaper model for pack summaries
+  cache_summaries: true
+  warn_entity_threshold: 100
+
+context_packs:
+  - name: auth
+    display_name: Authentication
+    files: ["src/auth/**/*.py"]
+    security_level: critical
+```
+
+API keys (optional, for LLM features):
+- `ANTHROPIC_API_KEY` for Claude-based enrichment/summaries
+- `OPENAI_API_KEY` for OpenAI-based enrichment
 
 ## Testing Strategy
 
