@@ -26,10 +26,12 @@ team_export.zip
 autodoc_export.zip
 *.export.zip
 
-# Visualization outputs
+# Visualization outputs (except docs/)
 *.html
+!docs/*.html
 *.png
-!docs/images/*.png  # Keep documentation images if any
+!docs/*.png
+!docs/images/*.png
 
 # Backup files
 *.backup

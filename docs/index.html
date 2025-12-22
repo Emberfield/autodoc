@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autodoc - AI-Powered Code Intelligence</title>
+    <meta name="description" content="Autodoc analyzes your codebase with AI, enabling semantic search, context packs for feature grouping, and MCP integration for AI assistants.">
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <a href="#" class="logo">autodoc</a>
+            <div class="nav-links">
+                <a href="#features">Features</a>
+                <a href="#install">Install</a>
+                <a href="https://github.com/Emberfield/autodoc" target="_blank">GitHub</a>
+            </div>
+        </div>
+    </nav>
+
+    <header class="hero">
+        <div class="container">
+            <h1>AI-Powered Code Intelligence</h1>
+            <p class="tagline">Understand your codebase with semantic search, context packs, and MCP integration. Free local embeddings included.</p>
+            <div class="cta-buttons">
+                <a href="#install" class="btn btn-primary">Get Started</a>
+                <a href="https://github.com/Emberfield/autodoc" class="btn btn-secondary" target="_blank">View on GitHub</a>
+            </div>
+            <div class="hero-code">
+                <pre><code><span class="comment"># Install from PyPI</span>
+pip install ai-code-autodoc
+
+<span class="comment"># Analyze your codebase</span>
+autodoc analyze ./src --save
+
+<span class="comment"># Semantic search with natural language</span>
+autodoc search "user authentication flow"</code></pre>
+            </div>
+        </div>
+    </header>
+
+    <section id="features" class="features">
+        <div class="container">
+            <h2>Features</h2>
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">&#128269;</div>
+                    <h3>Semantic Search</h3>
+                    <p>Search your code with natural language. Find functions by what they do, not just their names.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">&#128230;</div>
+                    <h3>Context Packs</h3>
+                    <p>Group related code by feature. Perfect for giving AI assistants focused context.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">&#129302;</div>
+                    <h3>MCP Server</h3>
+                    <p>9 tools for AI assistant integration via Model Context Protocol. Works with Claude, ChatGPT, and more.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">&#128176;</div>
+                    <h3>Free Local Embeddings</h3>
+                    <p>ChromaDB with sentence-transformers. No API key required for semantic search.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">&#9889;</div>
+                    <h3>Impact Analysis</h3>
+                    <p>Know which features are affected when files change. Perfect for CI/CD pipelines.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">&#128202;</div>
+                    <h3>Cost Controls</h3>
+                    <p>Dry-run mode, caching, and configurable models. Stay in control of LLM costs.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="context-packs">
+        <div class="container">
+            <h2>Context Packs</h2>
+            <p class="section-subtitle">Group your code by feature for focused AI context</p>
+            <div class="code-example">
+                <pre><code><span class="comment"># autodoc.yaml</span>
+<span class="key">context_packs:</span>
+  - <span class="key">name:</span> auth
+    <span class="key">display_name:</span> Authentication System
+    <span class="key">files:</span>
+      - "src/auth/**/*.py"
+      - "api/routes/auth.py"
+    <span class="key">security_level:</span> critical
+    <span class="key">tags:</span> [security, core]
+
+  - <span class="key">name:</span> payments
+    <span class="key">display_name:</span> Payment Processing
+    <span class="key">files:</span>
+      - "src/payments/**/*.py"
+    <span class="key">dependencies:</span> [auth]</code></pre>
+            </div>
+            <div class="pack-commands">
+                <code>autodoc pack build auth --embeddings --summary</code>
+                <code>autodoc pack query auth "token validation"</code>
+                <code>autodoc pack diff auth</code>
+            </div>
+        </div>
+    </section>
+
+    <section id="install" class="install">
+        <div class="container">
+            <h2>Quick Start</h2>
+            <div class="install-steps">
+                <div class="step">
+                    <span class="step-num">1</span>
+                    <div class="step-content">
+                        <h4>Install</h4>
+                        <code>pip install ai-code-autodoc</code>
+                    </div>
+                </div>
+                <div class="step">
+                    <span class="step-num">2</span>
+                    <div class="step-content">
+                        <h4>Analyze</h4>
+                        <code>autodoc analyze ./src --save</code>
+                    </div>
+                </div>
+                <div class="step">
+                    <span class="step-num">3</span>
+                    <div class="step-content">
+                        <h4>Search</h4>
+                        <code>autodoc search "your query"</code>
+                    </div>
+                </div>
+            </div>
+            <div class="optional-setup">
+                <h4>Optional: Enable AI Summaries</h4>
+                <pre><code><span class="comment"># Set API key for LLM features</span>
+export ANTHROPIC_API_KEY=sk-ant-...
+
+<span class="comment"># Generate AI summaries for packs</span>
+autodoc pack build --all --summary</code></pre>
+            </div>
+        </div>
+    </section>
+
+    <section class="mcp-section">
+        <div class="container">
+            <h2>MCP Integration</h2>
+            <p class="section-subtitle">9 tools for AI assistant integration</p>
+            <div class="mcp-tools">
+                <div class="tool">pack_list</div>
+                <div class="tool">pack_info</div>
+                <div class="tool">pack_query</div>
+                <div class="tool">pack_files</div>
+                <div class="tool">pack_entities</div>
+                <div class="tool">impact_analysis</div>
+                <div class="tool">pack_status</div>
+                <div class="tool">pack_deps</div>
+                <div class="tool">pack_diff</div>
+            </div>
+            <code class="mcp-command">autodoc mcp-server</code>
+        </div>
+    </section>
+
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-brand">
+                    <span class="logo">autodoc</span>
+                    <p>AI-Powered Code Intelligence</p>
+                </div>
+                <div class="footer-links">
+                    <a href="https://pypi.org/project/ai-code-autodoc/" target="_blank">PyPI</a>
+                    <a href="https://github.com/Emberfield/autodoc" target="_blank">GitHub</a>
+                    <a href="https://github.com/Emberfield/autodoc/issues" target="_blank">Issues</a>
+                </div>
+            </div>
+            <p class="copyright">MIT License &copy; 2024 Emberfield</p>
+        </div>
+    </footer>
+</body>
+</html>
