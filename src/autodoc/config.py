@@ -121,6 +121,65 @@ class OutputConfig(BaseModel):
     group_by_feature: bool = Field(True, description="Group entities by feature/module")
 
 
+class ContextPackConfig(BaseModel):
+    """Configuration for a context pack - a logical grouping of related code entities."""
+
+    name: str = Field(..., description="Unique identifier for the pack (e.g., 'authentication')")
+    display_name: str = Field(..., description="Human-readable name (e.g., 'Authentication System')")
+    description: str = Field(..., description="Description of what this pack covers")
+    files: List[str] = Field(
+        default_factory=list,
+        description="Glob patterns for files in this pack (e.g., ['src/auth/**/*.py'])"
+    )
+    tables: List[str] = Field(
+        default_factory=list,
+        description="Database tables related to this pack (for documentation)"
+    )
+    dependencies: List[str] = Field(
+        default_factory=list,
+        description="Names of other packs this pack depends on"
+    )
+    security_level: Optional[Literal["critical", "high", "normal"]] = Field(
+        None, description="Security classification for this pack"
+    )
+    tags: List[str] = Field(
+        default_factory=list,
+        description="Tags for categorization (e.g., ['security', 'core'])"
+    )
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        """Validate pack name is a valid identifier."""
+        if not v.replace("_", "").replace("-", "").isalnum():
+            raise ValueError("Pack name must contain only alphanumeric characters, underscores, and hyphens")
+        return v.lower()
+
+
+class DatabaseConfig(BaseModel):
+    """Configuration for database schema analysis."""
+
+    migration_paths: List[str] = Field(
+        default_factory=lambda: [
+            "init/postgres/*.sql",
+            "alembic/versions/*.py",
+            "migrations/*.sql",
+        ],
+        description="Paths to database migration files"
+    )
+    model_paths: List[str] = Field(
+        default_factory=lambda: [
+            "api/models/*.py",
+            "src/models/*.py",
+            "**/models.py",
+        ],
+        description="Paths to ORM model files"
+    )
+    analyze_schema: bool = Field(
+        False, description="Whether to parse and analyze database schema"
+    )
+
+
 class AutodocConfig(BaseModel):
     """Main configuration for autodoc."""
 
@@ -130,6 +189,49 @@ class AutodocConfig(BaseModel):
     graph: GraphConfig = Field(default_factory=GraphConfig, description="Graph database settings")
     analysis: AnalysisConfig = Field(default_factory=AnalysisConfig, description="Analysis settings")
     output: OutputConfig = Field(default_factory=OutputConfig, description="Output settings")
+    database: DatabaseConfig = Field(default_factory=DatabaseConfig, description="Database schema settings")
+    context_packs: List[ContextPackConfig] = Field(
+        default_factory=list, description="Context packs for feature-based code grouping"
+    )
+
+    def get_pack(self, name: str) -> Optional[ContextPackConfig]:
+        """Get a context pack by name."""
+        for pack in self.context_packs:
+            if pack.name == name.lower():
+                return pack
+        return None
+
+    def get_packs_by_tag(self, tag: str) -> List[ContextPackConfig]:
+        """Get all context packs with a specific tag."""
+        return [pack for pack in self.context_packs if tag in pack.tags]
+
+    def get_packs_by_security_level(
+        self, level: Literal["critical", "high", "normal"]
+    ) -> List[ContextPackConfig]:
+        """Get all context packs with a specific security level."""
+        return [pack for pack in self.context_packs if pack.security_level == level]
+
+    def resolve_pack_dependencies(self, pack_name: str) -> List[ContextPackConfig]:
+        """Resolve all dependencies for a pack (including transitive)."""
+        pack = self.get_pack(pack_name)
+        if not pack:
+            return []
+
+        resolved: List[ContextPackConfig] = []
+        seen: set[str] = set()
+
+        def resolve(p: ContextPackConfig) -> None:
+            if p.name in seen:
+                return
+            seen.add(p.name)
+            for dep_name in p.dependencies:
+                dep = self.get_pack(dep_name)
+                if dep:
+                    resolve(dep)
+            resolved.append(p)
+
+        resolve(pack)
+        return resolved
 
     @classmethod
     def load(cls, config_path: Optional[Path] = None) -> "AutodocConfig":
