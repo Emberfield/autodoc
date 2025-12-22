@@ -48,6 +48,10 @@ create_autodoc.sh
 # Large data files
 comprehensive_data.json
 
+# Database files
+*.db
+ai_collaboration.db
+
 # IDE and OS files
 .DS_Store
 .idea/
