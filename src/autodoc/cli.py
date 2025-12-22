@@ -2259,6 +2259,45 @@ def pack_query(name, query, limit, keyword):
         console.print()
 
 
+# =============================================================================
+# MCP Server Command
+# =============================================================================
+
+
+@cli.command("mcp-server")
+def mcp_server():
+    """Start the MCP (Model Context Protocol) server.
+
+    This exposes autodoc context pack tools for AI assistants like Claude Code.
+
+    Tools available:
+      - pack_list: List all context packs
+      - pack_info: Get details about a pack
+      - pack_query: Search within a pack
+      - pack_files: Get files in a pack
+      - pack_entities: Get entities from a pack
+
+    Resources available:
+      - autodoc://packs - List all packs
+      - autodoc://packs/{name} - Get specific pack info
+
+    Example usage in Claude Code:
+      Configure as MCP server in your settings, then use tools to
+      query and understand your codebase.
+    """
+    try:
+        from .mcp_server import main as mcp_main
+        console.print("[bold]Starting autodoc MCP server...[/bold]")
+        console.print("[dim]Tools: pack_list, pack_info, pack_query, pack_files, pack_entities[/dim]")
+        console.print("[dim]Resources: autodoc://packs, autodoc://packs/{name}[/dim]\n")
+        mcp_main()
+    except ImportError as e:
+        console.print(f"[red]Error: MCP dependencies not installed: {e}[/red]")
+        console.print("[yellow]Install with: pip install fastmcp[/yellow]")
+    except Exception as e:
+        console.print(f"[red]Error starting MCP server: {e}[/red]")
+
+
 def main():
     cli()
 
