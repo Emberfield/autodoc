@@ -21,9 +21,10 @@ from fastmcp import FastMCP
 from .config import AutodocConfig
 
 # Initialize FastMCP server
+# Note: FastMCP 2.x uses 'instructions' instead of 'description'
 mcp = FastMCP(
     "autodoc",
-    description="Code documentation and context pack tools for understanding codebases",
+    instructions="Code documentation and context pack tools for understanding codebases",
 )
 
 
