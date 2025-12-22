@@ -118,6 +118,10 @@ test-coverage: ## Run tests with coverage report
 	uv run pytest --cov=src/autodoc --cov-report=html --cov-report=term tests/
 	@echo "$(GREEN)✓ Coverage report generated$(NC)"
 
+demo-collab: ## Run the collaborative editing UI demo
+	@echo "$(YELLOW)Running collaborative editing demo...$(NC)"
+	uv run python demo_collaboration.py
+
 # ========================================
 # Rust Core Targets
 # ========================================
