@@ -736,7 +736,7 @@ def check():
 
     # Load config to check embedding provider
     config = AutodocConfig.load()
-    embedding_provider = config.embeddings.get("provider", "openai")
+    embedding_provider = config.embeddings.provider
 
     console.print(f"[blue]Embedding Provider: {embedding_provider}[/blue]")
 
@@ -746,12 +746,12 @@ def check():
             from .chromadb_embedder import ChromaDBEmbedder
 
             embedder = ChromaDBEmbedder(
-                persist_directory=config.embeddings.get("persist_directory", ".autodoc_chromadb")
+                persist_directory=config.embeddings.persist_directory
             )
             stats = embedder.get_stats()
             console.print("✅ ChromaDB configured")
             console.print(
-                f"   Model: {config.embeddings.get('chromadb_model', 'all-MiniLM-L6-v2')}"
+                f"   Model: {config.embeddings.chromadb_model}"
             )
             console.print(f"   Embeddings: {stats['total_embeddings']}")
             console.print(f"   Directory: {stats['persist_directory']}")
@@ -1112,7 +1112,7 @@ async def _enrich_async(
             embedded_count = await autodoc_regen.chromadb_embedder.embed_entities(
                 autodoc_regen.entities,
                 use_enrichment=True,
-                batch_size=config.embeddings.get("batch_size", 100),
+                batch_size=config.embeddings.batch_size,
             )
             console.print(
                 f"[green]✅ Re-embedded {embedded_count} entities in ChromaDB with enriched content[/green]"
@@ -1299,7 +1299,7 @@ def vector(regenerate):
             autodoc.chromadb_embedder.embed_entities(
                 autodoc.entities,
                 use_enrichment=True,
-                batch_size=config.embeddings.get("batch_size", 100),
+                batch_size=config.embeddings.batch_size,
             )
         )
 

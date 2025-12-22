@@ -50,22 +50,18 @@ class SimpleAutodoc:
             console.print("[yellow]TypeScript analyzer not available[/yellow]")
 
         # Initialize embedder based on config
-        embedding_provider = self.config.embeddings.get("provider", "openai")
+        embedding_provider = self.config.embeddings.provider
 
         if embedding_provider == "chromadb":
             # Use ChromaDB for local embeddings
             try:
                 self.chromadb_embedder = ChromaDBEmbedder(
                     collection_name="autodoc_embeddings",
-                    persist_directory=self.config.embeddings.get(
-                        "persist_directory", ".autodoc_chromadb"
-                    ),
-                    embedding_model=self.config.embeddings.get(
-                        "chromadb_model", "all-MiniLM-L6-v2"
-                    ),
+                    persist_directory=self.config.embeddings.persist_directory,
+                    embedding_model=self.config.embeddings.chromadb_model,
                 )
                 console.print(
-                    f"[green]Using ChromaDB for embeddings (model: {self.config.embeddings.get('chromadb_model')})[/green]"
+                    f"[green]Using ChromaDB for embeddings (model: {self.config.embeddings.chromadb_model})[/green]"
                 )
             except Exception as e:
                 console.print(f"[red]Failed to initialize ChromaDB: {e}[/red]")
@@ -166,7 +162,7 @@ class SimpleAutodoc:
             embedded_count = await self.chromadb_embedder.embed_entities(
                 all_entities,
                 use_enrichment=True,
-                batch_size=self.config.embeddings.get("batch_size", 100),
+                batch_size=self.config.embeddings.batch_size,
             )
             console.print(f"[green]Embedded {embedded_count} entities in ChromaDB[/green]")
 

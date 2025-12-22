@@ -19,11 +19,12 @@ class TestSimpleAutodoc:
         # Clear API key to ensure no embedder
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
-        # Create config with no embeddings
-        from autodoc.config import AutodocConfig
+        # Create config with chromadb for local embeddings (no API key needed)
+        from autodoc.config import AutodocConfig, EmbeddingsConfig
 
-        config = AutodocConfig()
-        config.embeddings["provider"] = "none"
+        config = AutodocConfig(
+            embeddings=EmbeddingsConfig(provider="chromadb")
+        )
 
         autodoc = SimpleAutodoc(config=config)
         summary = await autodoc.analyze_directory(sample_project_dir)
@@ -32,17 +33,19 @@ class TestSimpleAutodoc:
         assert summary["total_entities"] > 0
         assert summary["functions"] > 0
         assert summary["classes"] > 0
-        assert summary["has_embeddings"] is False
+        # ChromaDB embeddings work without an API key
+        assert summary["has_embeddings"] is True
 
     @pytest.mark.asyncio
     async def test_analyze_with_embeddings(self, sample_project_dir, monkeypatch):
         monkeypatch.setenv("OPENAI_API_KEY", "test-key")
 
         # Create config with OpenAI as provider
-        from autodoc.config import AutodocConfig
+        from autodoc.config import AutodocConfig, EmbeddingsConfig
 
-        config = AutodocConfig()
-        config.embeddings["provider"] = "openai"
+        config = AutodocConfig(
+            embeddings=EmbeddingsConfig(provider="openai")
+        )
 
         with patch("autodoc.embedder.OpenAIEmbedder.embed_batch") as mock_embed:
             mock_embed.return_value = [[0.1, 0.2] for _ in range(20)]  # More embeddings
@@ -216,10 +219,11 @@ class TestSimpleAutodoc:
         monkeypatch.setenv("OPENAI_API_KEY", "test-key")
 
         # Create config with OpenAI as provider
-        from autodoc.config import AutodocConfig
+        from autodoc.config import AutodocConfig, EmbeddingsConfig
 
-        config = AutodocConfig()
-        config.embeddings["provider"] = "openai"
+        config = AutodocConfig(
+            embeddings=EmbeddingsConfig(provider="openai")
+        )
 
         autodoc = SimpleAutodoc(config=config)
         assert autodoc.embedder is not None

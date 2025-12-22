@@ -111,39 +111,64 @@ class CollaborationUI:
     def render_document_with_presence(self, document: str) -> Text:
         """
         Render document with user cursors and selections highlighted.
-        
+
         Returns a Rich Text object with appropriate styling.
         """
-        text = Text(document)
-        
-        # Add selection highlights
-        for user_id, presence in self.users.items():
-            if presence.selection_start is not None and presence.selection_end is not None:
-                text.stylize(
-                    f"on {presence.color} dim",
-                    presence.selection_start,
-                    presence.selection_end
-                )
-        
-        # Add cursor indicators (as vertical bars in the background)
-        cursor_positions = {}
+        # Collect cursor positions with their colors
+        cursor_positions: Dict[int, List[Tuple[str, str]]] = {}
         for user_id, presence in self.users.items():
             pos = presence.cursor_position
             if pos not in cursor_positions:
                 cursor_positions[pos] = []
             cursor_positions[pos].append((user_id, presence.color))
-        
-        # Insert cursor markers
-        offset = 0
+
+        # Build text with cursors inserted at correct positions
+        # Process positions in reverse order to maintain correct indices
+        result = Text()
+        last_pos = 0
+
         for pos in sorted(cursor_positions.keys()):
-            users_at_pos = cursor_positions[pos]
-            for user_id, color in users_at_pos:
-                marker = Text("│", style=f"{color} bold")
-                text.plain = text.plain[:pos + offset] + "│" + text.plain[pos + offset:]
-                text.stylize(f"{color} bold", pos + offset, pos + offset + 1)
-                offset += 1
-        
-        return text
+            # Add text before this cursor position
+            if pos > last_pos:
+                result.append(document[last_pos:pos])
+
+            # Add cursor markers for all users at this position
+            for user_id, color in cursor_positions[pos]:
+                result.append("│", style=f"{color} bold")
+
+            last_pos = pos
+
+        # Add remaining text after last cursor
+        if last_pos < len(document):
+            result.append(document[last_pos:])
+
+        # Apply selection highlights
+        # We need to recalculate positions accounting for inserted cursors
+        for user_id, presence in self.users.items():
+            if presence.selection_start is not None and presence.selection_end is not None:
+                # Calculate adjusted positions based on cursor insertions
+                adj_start = self._adjust_position_for_cursors(
+                    presence.selection_start, cursor_positions
+                )
+                adj_end = self._adjust_position_for_cursors(
+                    presence.selection_end, cursor_positions
+                )
+                result.stylize(f"on {presence.color} dim", adj_start, adj_end)
+
+        return result
+
+    def _adjust_position_for_cursors(
+        self, pos: int, cursor_positions: Dict[int, List[Tuple[str, str]]]
+    ) -> int:
+        """Adjust a document position to account for inserted cursor markers."""
+        adjustment = 0
+        for cursor_pos, users in cursor_positions.items():
+            if cursor_pos < pos:
+                adjustment += len(users)  # Each cursor adds one character
+            elif cursor_pos == pos:
+                # Cursors at the same position come before the selection
+                adjustment += len(users)
+        return pos + adjustment
     
     def add_conflict(self, conflict_id: str, position: int, length: int,
                     users: List[str], operations: List[dict]) -> Conflict:

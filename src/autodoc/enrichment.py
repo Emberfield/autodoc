@@ -5,7 +5,6 @@ LLM-powered code enrichment for autodoc.
 
 import json
 import logging
-import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -262,11 +261,12 @@ Please provide:
                 if resp.status == 200:
                     result = await resp.json()
                     response = result.get("response", "")
-                    # Extract JSON from response
-                    json_match = re.search(r"\{.*\}", response, re.DOTALL)
-                    if json_match:
-                        return json.loads(json_match.group())
-                    log.error(f"Ollama API: No JSON found in response: {response}")
+                    # Extract JSON from response using efficient string search
+                    # (avoids regex DOS on long strings with many braces)
+                    json_str = self._extract_json_object(response)
+                    if json_str:
+                        return json.loads(json_str)
+                    log.error(f"Ollama API: No JSON found in response: {response[:500]}")
                     return None
                 else:
                     error = await resp.text()
@@ -275,6 +275,46 @@ Please provide:
         except (aiohttp.ClientError, json.JSONDecodeError) as e:
             log.error(f"Error calling Ollama or parsing response: {e}")
             return None
+
+    def _extract_json_object(self, text: str) -> Optional[str]:
+        """
+        Extract a JSON object from text by finding matching braces.
+
+        More efficient than regex for long strings - O(n) with no backtracking.
+        """
+        start = text.find("{")
+        if start == -1:
+            return None
+
+        # Find matching closing brace by counting brace depth
+        depth = 0
+        in_string = False
+        escape_next = False
+
+        for i, char in enumerate(text[start:], start):
+            if escape_next:
+                escape_next = False
+                continue
+
+            if char == "\\":
+                escape_next = True
+                continue
+
+            if char == '"' and not escape_next:
+                in_string = not in_string
+                continue
+
+            if in_string:
+                continue
+
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start : i + 1]
+
+        return None  # No matching closing brace found
 
     def _parse_enrichment_response(
         self, entity: CodeEntity, response: Dict[str, Any]
