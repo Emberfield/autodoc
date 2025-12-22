@@ -1969,7 +1969,8 @@ def pack_info(name, as_json, deps):
 @click.option("--all", "build_all", is_flag=True, help="Build all packs")
 @click.option("--output", "-o", type=click.Path(), help="Output directory for pack data")
 @click.option("--embeddings", "-e", is_flag=True, help="Create ChromaDB embeddings for semantic search")
-def pack_build(name, build_all, output, embeddings):
+@click.option("--summary", "-s", is_flag=True, help="Generate LLM summary for each pack")
+def pack_build(name, build_all, output, embeddings, summary):
     """Build/index a context pack for searching.
 
     This matches files to the pack's patterns and creates embeddings
@@ -2083,6 +2084,34 @@ def pack_build(name, build_all, output, embeddings):
             )
             console.print(f"  [green]✓ Created {embedded_count} embeddings in {persist_dir}[/green]")
 
+        # Generate LLM summary if requested
+        llm_summary = None
+        if summary:
+            try:
+                from .enrichment import LLMEnricher
+
+                console.print(f"  [dim]Generating LLM summary...[/dim]")
+
+                async def generate_summary():
+                    async with LLMEnricher(config) as enricher:
+                        return await enricher.generate_pack_summary(
+                            pack_name=pack_config.name,
+                            pack_display_name=pack_config.display_name,
+                            pack_description=pack_config.description,
+                            entities=entities_in_pack,
+                            files=[str(f) for f in matched_files],
+                            tables=pack_config.tables,
+                            dependencies=pack_config.dependencies,
+                        )
+
+                llm_summary = asyncio.get_event_loop().run_until_complete(generate_summary())
+                if llm_summary:
+                    console.print(f"  [green]✓ Generated LLM summary[/green]")
+                else:
+                    console.print(f"  [yellow]⚠ LLM summary generation failed (check API key)[/yellow]")
+            except Exception as e:
+                console.print(f"  [yellow]⚠ Error generating summary: {e}[/yellow]")
+
         # Save pack data
         pack_data = {
             "name": pack_config.name,
@@ -2095,6 +2124,7 @@ def pack_build(name, build_all, output, embeddings):
             "security_level": pack_config.security_level,
             "tags": pack_config.tags,
             "has_embeddings": embeddings and len(code_entities) > 0,
+            "llm_summary": llm_summary,
         }
 
         pack_file = output_dir / f"{pack_config.name}.json"

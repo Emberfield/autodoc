@@ -331,6 +331,79 @@ Please provide:
             dependencies=response.get("dependencies"),
         )
 
+    async def generate_pack_summary(
+        self,
+        pack_name: str,
+        pack_display_name: str,
+        pack_description: str,
+        entities: List[Dict[str, Any]],
+        files: List[str],
+        tables: List[str],
+        dependencies: List[str],
+    ) -> Optional[Dict[str, Any]]:
+        """Generate an LLM summary for a context pack.
+
+        Args:
+            pack_name: The pack identifier
+            pack_display_name: Human-readable name
+            pack_description: Current description
+            entities: List of entity dicts (functions, classes, etc.)
+            files: List of file paths in the pack
+            tables: List of database tables
+            dependencies: List of dependent pack names
+
+        Returns:
+            Dict with: summary, architecture, key_components, security_notes, usage_patterns
+        """
+        api_key = self.llm_config.get_api_key()
+        if not api_key:
+            log.warning(f"No API key for {self.llm_config.provider}. Skipping pack summary.")
+            return None
+
+        # Build summary of entities for the prompt
+        entity_summary = []
+        for e in entities[:30]:  # Limit to first 30 for prompt size
+            entity_summary.append(f"- {e.get('entity_type', 'unknown')}: {e.get('name', 'unknown')}")
+
+        prompt = f"""Analyze this context pack and provide a comprehensive summary.
+
+Pack: {pack_display_name}
+Current Description: {pack_description}
+
+Files ({len(files)} total):
+{chr(10).join(f'- {f}' for f in files[:15])}
+{'... and ' + str(len(files) - 15) + ' more' if len(files) > 15 else ''}
+
+Database Tables: {', '.join(tables) if tables else 'None'}
+
+Dependencies: {', '.join(dependencies) if dependencies else 'None (standalone)'}
+
+Code Entities ({len(entities)} total):
+{chr(10).join(entity_summary)}
+{'... and ' + str(len(entities) - 30) + ' more' if len(entities) > 30 else ''}
+
+Provide a comprehensive analysis including:
+1. summary: A 3-5 sentence overview of what this pack does
+2. architecture: Key architectural patterns used (MVC, repository, etc.)
+3. key_components: List of the most important functions/classes and their roles
+4. security_notes: Any security considerations (especially if tables include auth/users)
+5. usage_patterns: How other code would typically interact with this pack
+6. suggested_improvements: 1-2 potential improvements
+
+Respond in JSON format with the keys above."""
+
+        if self.llm_config.provider == "openai":
+            response = await self._call_openai(prompt)
+        elif self.llm_config.provider == "anthropic":
+            response = await self._call_anthropic(prompt)
+        elif self.llm_config.provider == "ollama":
+            response = await self._call_ollama(prompt)
+        else:
+            log.warning(f"Unsupported LLM provider: {self.llm_config.provider}")
+            return None
+
+        return response
+
 
 class EnrichmentCache:
     """Cache for enriched entities."""
