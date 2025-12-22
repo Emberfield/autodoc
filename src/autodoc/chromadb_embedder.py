@@ -66,8 +66,12 @@ class ChromaDBEmbedder:
         )
 
     def generate_id(self, entity: CodeEntity) -> str:
-        """Generate a unique ID for an entity."""
-        key = f"{entity.file_path}:{entity.name}:{entity.line_number}"
+        """Generate a unique ID for an entity.
+
+        Includes type, file_path, name, and line_number to ensure uniqueness
+        even for entities with the same name (e.g., __init__ methods in different classes).
+        """
+        key = f"{entity.type}:{entity.file_path}:{entity.name}:{entity.line_number}"
         return hashlib.md5(key.encode()).hexdigest()
 
     def prepare_entity_text(
@@ -125,8 +129,15 @@ class ChromaDBEmbedder:
             documents = []
             metadatas = []
 
+            seen_ids = set()
             for entity in batch:
                 entity_id = self.generate_id(entity)
+
+                # Skip duplicates within the batch
+                if entity_id in seen_ids:
+                    continue
+                seen_ids.add(entity_id)
+
                 text = self.prepare_entity_text(entity, enrichment_cache)
 
                 metadata = {
@@ -153,10 +164,10 @@ class ChromaDBEmbedder:
                 documents.append(text)
                 metadatas.append(metadata)
 
-            # Add to ChromaDB
-            self.collection.add(ids=ids, documents=documents, metadatas=metadatas)
-
-            embedded_count += len(batch)
+            # Use upsert to handle any remaining duplicates from previous runs
+            if ids:
+                self.collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
+                embedded_count += len(ids)  # Count actual embeddings, not batch size
 
         return embedded_count
 
