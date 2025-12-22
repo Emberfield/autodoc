@@ -2389,7 +2389,8 @@ def pack_query(name, query, limit, keyword, output_json):
 @click.option("--save", is_flag=True, help="Save generated packs to autodoc.yaml")
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON for programmatic use")
 @click.option("--min-files", default=3, help="Minimum files for a pack (default: 3)")
-def pack_auto_generate(save, output_json, min_files):
+@click.option("--root", "root_path", type=click.Path(exists=True), help="Root directory to scan (default: current directory)")
+def pack_auto_generate(save, output_json, min_files, root_path):
     """Automatically detect and suggest context packs based on codebase structure.
 
     Analyzes your codebase to detect:
@@ -2399,12 +2400,13 @@ def pack_auto_generate(save, output_json, min_files):
 
     Use --save to append suggested packs to autodoc.yaml.
     Use --json for programmatic output (e.g., Temporal workflows).
+    Use --root to specify a different base directory (useful in Docker/CI).
     """
     from pathlib import Path as PathLib
     import fnmatch
 
     config = AutodocConfig.load()
-    base_path = PathLib.cwd()
+    base_path = PathLib(root_path) if root_path else PathLib.cwd()
     suggested_packs = []
 
     # Known pack patterns to detect
