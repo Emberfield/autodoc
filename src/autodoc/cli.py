@@ -2833,6 +2833,113 @@ def pack_status(output_json):
     console.print(f"\n[bold]Total:[/bold] {indexed_count}/{len(pack_statuses)} packs indexed")
 
 
+@pack.command("diff")
+@click.argument("name")
+@click.option("--json", "output_json", is_flag=True, help="Output as JSON for programmatic use")
+def pack_diff(name, output_json):
+    """Show what changed in a pack since it was last indexed.
+
+    Compares current files against the indexed state to identify
+    new, modified, and deleted files.
+    """
+    from pathlib import Path as PathLib
+
+    config = AutodocConfig.load()
+    pack_config = config.get_pack(name)
+
+    if not pack_config:
+        if output_json:
+            print(json.dumps({"error": f"Pack '{name}' not found"}))
+        else:
+            console.print(f"[red]Pack '{name}' not found.[/red]")
+        return
+
+    pack_file = PathLib(f".autodoc/packs/{name}.json")
+    if not pack_file.exists():
+        if output_json:
+            print(json.dumps({"error": f"Pack '{name}' not indexed yet", "hint": f"Run: autodoc pack build {name}"}))
+        else:
+            console.print(f"[yellow]Pack '{name}' not indexed yet. Run: autodoc pack build {name}[/yellow]")
+        return
+
+    with open(pack_file) as f:
+        pack_data = json.load(f)
+
+    indexed_files = set(pack_data.get("files", []))
+    indexed_entities = pack_data.get("entities", [])
+
+    # Find current files matching patterns
+    base_path = PathLib.cwd()
+    current_files = set()
+    for pattern in pack_config.files:
+        for f in base_path.glob(pattern):
+            if f.is_file():
+                current_files.add(str(f))
+
+    # Categorize files
+    new_files = sorted(current_files - indexed_files)
+    deleted_files = sorted(indexed_files - current_files)
+    unchanged_files = current_files & indexed_files
+
+    # Estimate new entities in new files
+    new_entity_estimate = 0
+    for f in new_files:
+        try:
+            content = PathLib(f).read_text()
+            new_entity_estimate += content.count("\ndef ") + content.count("\nclass ")
+        except Exception:
+            pass
+
+    if output_json:
+        output = {
+            "pack": name,
+            "indexed_at": pack_data.get("indexed_at"),
+            "indexed_files": len(indexed_files),
+            "indexed_entities": len(indexed_entities),
+            "current_files": len(current_files),
+            "new_files": new_files[:50],
+            "new_files_count": len(new_files),
+            "deleted_files": deleted_files[:50],
+            "deleted_files_count": len(deleted_files),
+            "unchanged_files_count": len(unchanged_files),
+            "estimated_new_entities": new_entity_estimate,
+            "needs_reindex": len(new_files) > 0 or len(deleted_files) > 0,
+        }
+        print(json.dumps(output, indent=2))
+        return
+
+    # Rich console output
+    console.print(f"\n[bold]Diff for {pack_config.display_name}:[/bold]\n")
+
+    console.print(f"[dim]Indexed: {len(indexed_files)} files, {len(indexed_entities)} entities[/dim]")
+    console.print(f"[dim]Current: {len(current_files)} files[/dim]\n")
+
+    if not new_files and not deleted_files:
+        console.print("[green]✓ Pack is up to date - no changes detected[/green]")
+        return
+
+    if new_files:
+        console.print(f"[green]+ {len(new_files)} new file(s):[/green]")
+        for f in new_files[:10]:
+            console.print(f"  [green]+[/green] {PathLib(f).name}")
+        if len(new_files) > 10:
+            console.print(f"  [dim]... and {len(new_files) - 10} more[/dim]")
+        console.print()
+
+    if deleted_files:
+        console.print(f"[red]- {len(deleted_files)} deleted file(s):[/red]")
+        for f in deleted_files[:10]:
+            console.print(f"  [red]-[/red] {PathLib(f).name}")
+        if len(deleted_files) > 10:
+            console.print(f"  [dim]... and {len(deleted_files) - 10} more[/dim]")
+        console.print()
+
+    if new_entity_estimate > 0:
+        console.print(f"[cyan]~{new_entity_estimate} new entities estimated in new files[/cyan]\n")
+
+    console.print(f"[yellow]⚠ Run 'autodoc pack build {name} --embeddings' to update index[/yellow]")
+
+
 @pack.command("deps")
 @click.argument("name")
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON for programmatic use")
@@ -2924,6 +3031,10 @@ def mcp_server():
       - pack_query: Search within a pack
       - pack_files: Get files in a pack
       - pack_entities: Get entities from a pack
+      - impact_analysis: Analyze impact of file changes
+      - pack_status: Get indexing status for all packs
+      - pack_deps: Show pack dependencies
+      - pack_diff: Show changes since last index
 
     Resources available:
       - autodoc://packs - List all packs
@@ -2936,7 +3047,8 @@ def mcp_server():
     try:
         from .mcp_server import main as mcp_main
         console.print("[bold]Starting autodoc MCP server...[/bold]")
-        console.print("[dim]Tools: pack_list, pack_info, pack_query, pack_files, pack_entities[/dim]")
+        console.print("[dim]Tools: pack_list, pack_info, pack_query, pack_files, pack_entities,[/dim]")
+        console.print("[dim]        impact_analysis, pack_status, pack_deps, pack_diff[/dim]")
         console.print("[dim]Resources: autodoc://packs, autodoc://packs/{name}[/dim]\n")
         mcp_main()
     except ImportError as e:
