@@ -2385,6 +2385,223 @@ def pack_query(name, query, limit, keyword, output_json):
         console.print()
 
 
+@pack.command("auto-generate")
+@click.option("--save", is_flag=True, help="Save generated packs to autodoc.yaml")
+@click.option("--json", "output_json", is_flag=True, help="Output as JSON for programmatic use")
+@click.option("--min-files", default=3, help="Minimum files for a pack (default: 3)")
+def pack_auto_generate(save, output_json, min_files):
+    """Automatically detect and suggest context packs based on codebase structure.
+
+    Analyzes your codebase to detect:
+    - Common directory patterns (src/, api/, tests/, models/, etc.)
+    - Language markers (setup.py, package.json, go.mod, Cargo.toml)
+    - Framework patterns (Django apps, FastAPI routers, React components)
+
+    Use --save to append suggested packs to autodoc.yaml.
+    Use --json for programmatic output (e.g., Temporal workflows).
+    """
+    from pathlib import Path as PathLib
+    import fnmatch
+
+    config = AutodocConfig.load()
+    base_path = PathLib.cwd()
+    suggested_packs = []
+
+    # Known pack patterns to detect
+    pack_patterns = [
+        # Standard code organization
+        {"pattern": "src/**/*.py", "name": "source", "display": "Source Code", "desc": "Main source code", "tags": ["core"]},
+        {"pattern": "api/**/*.py", "name": "api", "display": "API Layer", "desc": "API endpoints and routes", "tags": ["api"]},
+        {"pattern": "tests/**/*.py", "name": "tests", "display": "Test Suite", "desc": "Test files and fixtures", "tags": ["tests"]},
+        {"pattern": "lib/**/*.py", "name": "lib", "display": "Library Code", "desc": "Shared library code", "tags": ["core"]},
+        {"pattern": "utils/**/*.py", "name": "utils", "display": "Utilities", "desc": "Utility functions and helpers", "tags": ["utilities"]},
+        {"pattern": "models/**/*.py", "name": "models", "display": "Data Models", "desc": "Data models and schemas", "tags": ["data"]},
+        {"pattern": "services/**/*.py", "name": "services", "display": "Services", "desc": "Business logic services", "tags": ["core"]},
+        {"pattern": "controllers/**/*.py", "name": "controllers", "display": "Controllers", "desc": "Request handlers and controllers", "tags": ["api"]},
+        {"pattern": "routes/**/*.py", "name": "routes", "display": "Routes", "desc": "API route definitions", "tags": ["api"]},
+        {"pattern": "middleware/**/*.py", "name": "middleware", "display": "Middleware", "desc": "Request/response middleware", "tags": ["api"]},
+        {"pattern": "tasks/**/*.py", "name": "tasks", "display": "Background Tasks", "desc": "Async tasks and jobs", "tags": ["async"]},
+        {"pattern": "workers/**/*.py", "name": "workers", "display": "Workers", "desc": "Background workers and processors", "tags": ["async"]},
+        {"pattern": "migrations/**/*.py", "name": "migrations", "display": "Database Migrations", "desc": "Database migration files", "tags": ["database"]},
+        {"pattern": "config/**/*.py", "name": "config", "display": "Configuration", "desc": "Configuration modules", "tags": ["config"]},
+        {"pattern": "scripts/**/*.py", "name": "scripts", "display": "Scripts", "desc": "Utility and automation scripts", "tags": ["tools"]},
+        {"pattern": "cli/**/*.py", "name": "cli", "display": "CLI Commands", "desc": "Command-line interface", "tags": ["cli"]},
+        # TypeScript/JavaScript
+        {"pattern": "src/**/*.ts", "name": "source-ts", "display": "TypeScript Source", "desc": "TypeScript source code", "tags": ["core"]},
+        {"pattern": "src/**/*.tsx", "name": "react-components", "display": "React Components", "desc": "React component files", "tags": ["frontend", "ui"]},
+        {"pattern": "components/**/*.tsx", "name": "components", "display": "UI Components", "desc": "React/Vue/Svelte components", "tags": ["frontend", "ui"]},
+        {"pattern": "pages/**/*.tsx", "name": "pages", "display": "Pages", "desc": "Page components", "tags": ["frontend"]},
+        {"pattern": "hooks/**/*.ts", "name": "hooks", "display": "React Hooks", "desc": "Custom React hooks", "tags": ["frontend"]},
+        {"pattern": "store/**/*.ts", "name": "store", "display": "State Store", "desc": "State management", "tags": ["frontend"]},
+    ]
+
+    # Framework-specific patterns
+    framework_patterns = [
+        # Django
+        {"marker": "**/models.py", "adjacent": "**/views.py", "name_suffix": "-app", "framework": "django", "tags": ["django"]},
+        {"marker": "**/admin.py", "name_suffix": "-admin", "display_suffix": "Admin", "framework": "django", "tags": ["django", "admin"]},
+        # FastAPI
+        {"marker": "**/routers/**/*.py", "name": "fastapi-routers", "display": "FastAPI Routers", "framework": "fastapi", "tags": ["fastapi", "api"]},
+        # React
+        {"marker": "src/components/**/*.tsx", "name": "react-components", "display": "React Components", "framework": "react", "tags": ["react", "frontend"]},
+    ]
+
+    # Detect language from markers
+    detected_language = None
+    language_markers = [
+        ("setup.py", "python"),
+        ("pyproject.toml", "python"),
+        ("requirements.txt", "python"),
+        ("package.json", "javascript"),
+        ("tsconfig.json", "typescript"),
+        ("go.mod", "go"),
+        ("Cargo.toml", "rust"),
+        ("pom.xml", "java"),
+        ("build.gradle", "java"),
+    ]
+
+    for marker, lang in language_markers:
+        if (base_path / marker).exists():
+            detected_language = lang
+            break
+
+    if not output_json:
+        console.print(f"[bold]Scanning codebase for pack suggestions...[/bold]")
+        if detected_language:
+            console.print(f"[dim]Detected language: {detected_language}[/dim]\n")
+
+    # Filter patterns by detected language
+    language_extensions = {
+        "python": [".py"],
+        "javascript": [".js", ".jsx"],
+        "typescript": [".ts", ".tsx"],
+        "go": [".go"],
+        "rust": [".rs"],
+        "java": [".java"],
+    }
+
+    # Check each pattern
+    existing_pack_names = {p.name for p in config.context_packs}
+
+    for pack_info in pack_patterns:
+        pattern = pack_info["pattern"]
+
+        # Count matching files
+        matching_files = list(base_path.glob(pattern))
+
+        if len(matching_files) >= min_files:
+            # Skip if pack already exists
+            if pack_info["name"] in existing_pack_names:
+                continue
+
+            suggested_packs.append({
+                "name": pack_info["name"],
+                "display_name": pack_info["display"],
+                "description": pack_info["desc"],
+                "files": [pattern],
+                "file_count": len(matching_files),
+                "tags": pack_info.get("tags", []),
+                "tables": [],
+                "dependencies": [],
+            })
+
+    # Detect Django apps (directories with models.py)
+    for models_file in base_path.glob("**/models.py"):
+        app_dir = models_file.parent
+        app_name = app_dir.name.lower()
+
+        # Skip common non-app directories
+        if app_name in ["migrations", "tests", "test", "__pycache__"]:
+            continue
+
+        # Check if it looks like a Django app
+        has_views = (app_dir / "views.py").exists()
+        has_urls = (app_dir / "urls.py").exists()
+
+        if (has_views or has_urls) and app_name not in existing_pack_names:
+            # Count Python files in this app
+            py_files = list(app_dir.glob("**/*.py"))
+            if len(py_files) >= min_files:
+                suggested_packs.append({
+                    "name": app_name,
+                    "display_name": f"{app_name.replace('_', ' ').title()} App",
+                    "description": f"Django app for {app_name.replace('_', ' ')}",
+                    "files": [f"{app_dir.relative_to(base_path)}/**/*.py"],
+                    "file_count": len(py_files),
+                    "tags": ["django", "app"],
+                    "tables": [],
+                    "dependencies": [],
+                })
+
+    if not suggested_packs:
+        if output_json:
+            print(json.dumps({"suggested_packs": [], "total": 0, "language": detected_language}))
+        else:
+            console.print("[yellow]No pack suggestions found. Your codebase may need custom pack definitions.[/yellow]")
+            console.print("[dim]Define packs in autodoc.yaml under 'context_packs:'[/dim]")
+        return
+
+    # Remove duplicates by name
+    seen_names = set()
+    unique_packs = []
+    for pack in suggested_packs:
+        if pack["name"] not in seen_names:
+            seen_names.add(pack["name"])
+            unique_packs.append(pack)
+    suggested_packs = unique_packs
+
+    # JSON output mode
+    if output_json:
+        output = {
+            "suggested_packs": suggested_packs,
+            "total": len(suggested_packs),
+            "language": detected_language,
+        }
+        print(json.dumps(output, indent=2))
+        return
+
+    # Rich console output
+    console.print(f"[bold green]Found {len(suggested_packs)} suggested pack(s):[/bold green]\n")
+
+    for pack in suggested_packs:
+        tags_str = ", ".join(pack["tags"]) if pack["tags"] else "none"
+        console.print(f"[cyan]{pack['name']}[/cyan]: {pack['display_name']}")
+        console.print(f"  [dim]Files: {pack['files'][0]} ({pack['file_count']} files)[/dim]")
+        console.print(f"  [dim]Description: {pack['description']}[/dim]")
+        console.print(f"  [dim]Tags: {tags_str}[/dim]")
+        console.print()
+
+    # Save to config if requested
+    if save:
+        config_path = PathLib.cwd() / "autodoc.yaml"
+        if not config_path.exists():
+            config_path = PathLib.cwd() / ".autodoc.yaml"
+            if not config_path.exists():
+                config_path = PathLib.cwd() / "autodoc.yaml"
+
+        # Create ContextPackConfig objects
+        new_packs = []
+        for pack in suggested_packs:
+            new_pack = ContextPackConfig(
+                name=pack["name"],
+                display_name=pack["display_name"],
+                description=pack["description"],
+                files=pack["files"],
+                tags=pack["tags"],
+                tables=[],
+                dependencies=[],
+            )
+            new_packs.append(new_pack)
+
+        # Add to config
+        config.context_packs.extend(new_packs)
+        config.save(config_path)
+        console.print(f"[green]✓ Saved {len(new_packs)} pack(s) to {config_path}[/green]")
+        console.print("[dim]Run 'autodoc pack list' to see all packs[/dim]")
+    else:
+        console.print("[dim]Use --save to add these packs to your autodoc.yaml[/dim]")
+
+
 # =============================================================================
 # MCP Server Command
 # =============================================================================
