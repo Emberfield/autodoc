@@ -2162,7 +2162,7 @@ def pack_build(name, build_all, output, embeddings, summary, dry_run):
 
                 async def generate_summary():
                     async with LLMEnricher(config) as enricher:
-                        return await enricher.generate_pack_summary(
+                        result = await enricher.generate_pack_summary(
                             pack_name=pack_config.name,
                             pack_display_name=pack_config.display_name,
                             pack_description=pack_config.description,
@@ -2171,10 +2171,18 @@ def pack_build(name, build_all, output, embeddings, summary, dry_run):
                             tables=pack_config.tables,
                             dependencies=pack_config.dependencies,
                         )
+                        # Return both the summary and token usage
+                        return result, enricher.get_token_usage()
 
-                llm_summary = asyncio.get_event_loop().run_until_complete(generate_summary())
+                llm_summary, token_usage = asyncio.get_event_loop().run_until_complete(generate_summary())
                 if llm_summary:
                     console.print(f"  [green]✓ Generated LLM summary[/green]")
+                    # Display token usage
+                    if token_usage.get("total_tokens", 0) > 0:
+                        console.print(
+                            f"    [dim]Tokens used: {token_usage['input_tokens']} input + "
+                            f"{token_usage['output_tokens']} output = {token_usage['total_tokens']} total[/dim]"
+                        )
                 else:
                     console.print(f"  [yellow]⚠ LLM summary generation failed (check API key)[/yellow]")
             except Exception as e:

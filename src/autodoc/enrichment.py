@@ -39,6 +39,10 @@ class LLMEnricher:
         self.llm_config = config.llm
         self.enrichment_config = config.enrichment
         self._session: Optional[aiohttp.ClientSession] = None
+        # Token tracking for cost control
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
+        self.api_calls = 0
 
     async def __aenter__(self):
         self._session = aiohttp.ClientSession()
@@ -47,6 +51,22 @@ class LLMEnricher:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self._session:
             await self._session.close()
+        # Log token usage summary on exit
+        if self.api_calls > 0:
+            log.info(
+                f"LLM API usage summary: {self.api_calls} calls, "
+                f"{self.total_input_tokens} input tokens, "
+                f"{self.total_output_tokens} output tokens"
+            )
+
+    def get_token_usage(self) -> Dict[str, int]:
+        """Get current token usage statistics."""
+        return {
+            "api_calls": self.api_calls,
+            "input_tokens": self.total_input_tokens,
+            "output_tokens": self.total_output_tokens,
+            "total_tokens": self.total_input_tokens + self.total_output_tokens,
+        }
 
     async def enrich_entities(
         self, entities: List[CodeEntity], context: Optional[Dict[str, Any]] = None
@@ -185,6 +205,15 @@ Please provide:
                 if resp.status == 200:
                     result = await resp.json()
                     content = result["choices"][0]["message"]["content"]
+                    # Track token usage
+                    usage = result.get("usage", {})
+                    self.total_input_tokens += usage.get("prompt_tokens", 0)
+                    self.total_output_tokens += usage.get("completion_tokens", 0)
+                    self.api_calls += 1
+                    log.debug(
+                        f"OpenAI API call: {usage.get('prompt_tokens', 0)} input, "
+                        f"{usage.get('completion_tokens', 0)} output tokens"
+                    )
                     return json.loads(content)
                 else:
                     error = await resp.text()
@@ -227,6 +256,15 @@ Please provide:
                 if resp.status == 200:
                     result = await resp.json()
                     content = result["content"][0]["text"]
+                    # Track token usage
+                    usage = result.get("usage", {})
+                    self.total_input_tokens += usage.get("input_tokens", 0)
+                    self.total_output_tokens += usage.get("output_tokens", 0)
+                    self.api_calls += 1
+                    log.debug(
+                        f"Anthropic API call: {usage.get('input_tokens', 0)} input, "
+                        f"{usage.get('output_tokens', 0)} output tokens"
+                    )
                     return json.loads(content)
                 else:
                     error = await resp.text()
