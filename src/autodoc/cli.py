@@ -1970,11 +1970,14 @@ def pack_info(name, as_json, deps):
 @click.option("--output", "-o", type=click.Path(), help="Output directory for pack data")
 @click.option("--embeddings", "-e", is_flag=True, help="Create ChromaDB embeddings for semantic search")
 @click.option("--summary", "-s", is_flag=True, help="Generate LLM summary for each pack")
-def pack_build(name, build_all, output, embeddings, summary):
+@click.option("--dry-run", is_flag=True, help="Show what would be processed without making API calls")
+def pack_build(name, build_all, output, embeddings, summary, dry_run):
     """Build/index a context pack for searching.
 
     This matches files to the pack's patterns and creates embeddings
     for semantic search within the pack.
+
+    Use --dry-run to preview what would be processed and estimated costs.
     """
     import asyncio
     import fnmatch
@@ -2099,6 +2102,35 @@ def pack_build(name, build_all, output, embeddings, summary):
                             break
 
             console.print(f"  Found {len(entities_in_pack)} entities in pack")
+
+        # Dry run mode - show what would be processed without making API calls
+        if dry_run:
+            console.print(f"\n  [cyan]DRY RUN - No changes will be made[/cyan]")
+            console.print(f"  • Files to index: {len(matched_files)}")
+            console.print(f"  • Entities to embed: {len(entities_in_pack)}")
+
+            if embeddings:
+                console.print(f"  • Embeddings: Would create ChromaDB collection 'autodoc_pack_{pack_config.name}'")
+                console.print(f"    [dim](Uses local sentence-transformers - no API cost)[/dim]")
+
+            if summary:
+                # Estimate tokens for LLM summary
+                # Rough estimate: pack info + entity names/docstrings
+                entity_text = ""
+                for e in entities_in_pack[:50]:  # Sample first 50
+                    entity_text += f"{e.get('name', '')} {e.get('docstring', '')[:100]} "
+                estimated_input_tokens = len(entity_text.split()) * 2  # Rough token estimate
+                estimated_input_tokens += 500  # System prompt overhead
+
+                console.print(f"  • LLM Summary: Would call {config.llm.provider}/{config.llm.model}")
+                console.print(f"    [dim]Estimated input tokens: ~{estimated_input_tokens}[/dim]")
+
+                # Cost warnings for large packs
+                if len(entities_in_pack) > 100:
+                    console.print(f"    [yellow]⚠ Large pack ({len(entities_in_pack)} entities) - consider using a smaller model[/yellow]")
+                    console.print(f"    [dim]Tip: Configure llm.model in autodoc.yaml (e.g., claude-3-haiku-20240307, gpt-4o-mini)[/dim]")
+
+            continue  # Skip to next pack in dry-run mode
 
         # Create ChromaDB embeddings for this pack
         if embeddings and code_entities:
