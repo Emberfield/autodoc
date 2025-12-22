@@ -1,5 +1,6 @@
 # Autodoc - AI-Powered Code Intelligence
 
+[![PyPI version](https://badge.fury.io/py/ai-code-autodoc.svg)](https://pypi.org/project/ai-code-autodoc/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Supported-007ACC.svg)](https://www.typescriptlang.org/)
@@ -23,11 +24,11 @@ Autodoc is an AI-powered code intelligence tool that analyzes Python and TypeScr
 ## Quick Start
 
 ```bash
-# Install from private registry (for team members)
-pip install --index-url https://us-central1-python.pkg.dev/the-agent-factory/autodoc-repo/simple/ autodoc
+# Install from PyPI
+pip install ai-code-autodoc
 
 # Or install for development (requires uv)
-git clone https://github.com/your-org/autodoc.git
+git clone https://github.com/Emberfield/autodoc.git
 cd autodoc
 make setup
 source .venv/bin/activate
@@ -108,7 +109,7 @@ brew install uv
 
 ```bash
 # Clone repository
-git clone https://github.com/your-org/autodoc.git
+git clone https://github.com/Emberfield/autodoc.git
 cd autodoc
 
 # Setup environment with uv
@@ -141,7 +142,6 @@ make test-graph     # Run graph tests only
 make lint           # Check code quality
 make format         # Format code
 make build          # Build package
-make publish        # Publish to GCP Artifact Registry
 
 # Graph commands (require graph dependencies)
 make build-graph    # Build code relationship graph
@@ -155,22 +155,17 @@ make dev-graph      # Development setup with graph features
 
 ## Publishing & Deployment
 
-Autodoc uses GCP Artifact Registry for private package hosting:
+Autodoc is published to PyPI with automated releases via GitHub Actions:
 
 ```bash
-# One-time setup
-make setup-gcp
-make configure-auth
+# Build package locally
+make build
 
-# Create a release
-make release       # Interactive version bump
-make publish       # Publish to registry
-
-# Or use automated deployment
-./scripts/deploy.sh patch  # or minor/major
+# Create a GitHub release to trigger automatic PyPI publish
+# Or manually trigger the workflow from GitHub Actions
 ```
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed deployment instructions.
+The package is available at [pypi.org/project/ai-code-autodoc](https://pypi.org/project/ai-code-autodoc/).
 
 ## Architecture
 
@@ -274,6 +269,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/your-org/autodoc/issues)
+- **Issues**: [GitHub Issues](https://github.com/Emberfield/autodoc/issues)
 - **Documentation**: [CLAUDE.md](CLAUDE.md) for AI assistant guidance
-- **Installation Help**: [INSTALL.md](INSTALL.md) for detailed setup instructions
+- **PyPI Package**: [ai-code-autodoc](https://pypi.org/project/ai-code-autodoc/)
