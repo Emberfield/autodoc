@@ -2237,11 +2237,14 @@ def pack_build(name, build_all, output, embeddings, summary, dry_run, no_cache):
 @click.argument("query")
 @click.option("--limit", "-n", default=5, help="Number of results")
 @click.option("--keyword", "-k", is_flag=True, help="Force keyword search instead of semantic")
-def pack_query(name, query, limit, keyword):
+@click.option("--json", "output_json", is_flag=True, help="Output results as JSON for programmatic use")
+def pack_query(name, query, limit, keyword, output_json):
     """Search within a context pack using semantic search.
 
     If the pack was built with --embeddings, uses ChromaDB semantic search.
     Otherwise, falls back to keyword matching.
+
+    Use --json for programmatic output: {query, pack, search_type, results: [...]}
     """
     import asyncio
     from pathlib import Path as PathLib
@@ -2333,11 +2336,38 @@ def pack_query(name, query, limit, keyword):
         results.sort(key=lambda x: x[1], reverse=True)
         results = results[:limit]
 
+    search_type = "semantic" if use_semantic else "keyword"
+
     if not results:
-        console.print(f"[yellow]No results found for '{query}' in pack '{name}'[/yellow]")
+        if output_json:
+            print(json.dumps({"query": query, "pack": name, "search_type": search_type, "results": [], "total": 0}))
+        else:
+            console.print(f"[yellow]No results found for '{query}' in pack '{name}'[/yellow]")
         return
 
-    search_type = "semantic" if use_semantic else "keyword"
+    # JSON output mode for programmatic use
+    if output_json:
+        json_results = []
+        for entity, score in results:
+            json_results.append({
+                "type": entity.get("entity_type", "unknown"),
+                "name": entity.get("name", "unknown"),
+                "file": entity.get("file", ""),
+                "line": entity.get("start_line", 0),
+                "score": round(score, 3),
+                "preview": (entity.get("description") or entity.get("docstring") or "")[:200],
+            })
+        output = {
+            "query": query,
+            "pack": name,
+            "search_type": search_type,
+            "results": json_results,
+            "total": len(json_results),
+        }
+        print(json.dumps(output, indent=2))
+        return
+
+    # Rich console output
     console.print(f"\n[bold]Results for '{query}' in {pack_config.display_name} ({search_type}):[/bold]\n")
 
     for entity, score in results:
