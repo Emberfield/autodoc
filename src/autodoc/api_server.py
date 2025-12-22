@@ -15,8 +15,12 @@ from aiohttp_cors import setup as setup_cors
 
 from .analyzer import CodeEntity, EnhancedASTAnalyzer
 from .autodoc import SimpleAutodoc
+from .config import AutodocConfig
 from .graph import CodeGraphBuilder, CodeGraphQuery, GraphConfig
 from .ot_engine import OTWebSocketInterface
+
+# Get the static files directory
+STATIC_DIR = Path(__file__).parent / "static"
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -93,6 +97,17 @@ class APIServer:
         self.app.router.add_get("/api/entities/internal", self.get_internal_entities)
         self.app.router.add_get("/api/entities/external", self.get_external_entities)
         self.app.router.add_get("/api/entities/endpoints", self.get_api_endpoints)
+
+        # Config management endpoints
+        self.app.router.add_get("/api/config", self.get_config)
+        self.app.router.add_put("/api/config", self.update_config)
+        self.app.router.add_post("/api/config/validate", self.validate_config)
+
+        # Static file serving for config UI
+        if STATIC_DIR.exists():
+            self.app.router.add_static("/static", STATIC_DIR, name="static")
+            self.app.router.add_get("/", self.serve_index)
+            self.app.router.add_get("/config", self.serve_index)
 
     def _initialize_components(self):
         """Initialize Autodoc and graph components."""
@@ -549,6 +564,93 @@ class APIServer:
             logger.error(f"Error getting API endpoints: {e}")
             return web.json_response(
                 {"error": f"Failed to get API endpoints: {str(e)}"}, status=500
+            )
+
+    async def serve_index(self, request: web.Request) -> web.Response:
+        """Serve the main config UI page."""
+        index_path = STATIC_DIR / "index.html"
+        if index_path.exists():
+            return web.FileResponse(index_path)
+        return web.Response(
+            text="Config UI not found. Static files missing.",
+            status=404
+        )
+
+    async def get_config(self, request: web.Request) -> web.Response:
+        """Get current configuration."""
+        try:
+            config = AutodocConfig.load()
+            # Convert to dict, excluding sensitive fields
+            config_dict = config.model_dump(exclude_none=True)
+
+            # Remove sensitive fields (API keys, passwords)
+            if "llm" in config_dict and "api_key" in config_dict["llm"]:
+                config_dict["llm"]["api_key"] = None
+            if "graph" in config_dict and "neo4j_password" in config_dict["graph"]:
+                config_dict["graph"]["neo4j_password"] = None
+
+            return web.json_response(config_dict)
+        except Exception as e:
+            logger.error(f"Error getting config: {e}")
+            return web.json_response(
+                {"error": f"Failed to get config: {str(e)}"}, status=500
+            )
+
+    async def update_config(self, request: web.Request) -> web.Response:
+        """Update and save configuration."""
+        try:
+            data = await request.json()
+
+            # Remove any sensitive fields that shouldn't be saved via UI
+            # (users should set these via environment variables)
+            if "llm" in data:
+                data["llm"].pop("api_key", None)
+            if "graph" in data:
+                data["graph"].pop("neo4j_password", None)
+
+            # Validate the config data
+            try:
+                config = AutodocConfig.model_validate(data)
+            except Exception as validation_error:
+                return web.json_response(
+                    {"error": f"Validation failed: {str(validation_error)}"},
+                    status=400
+                )
+
+            # Save the config
+            config.save()
+
+            return web.json_response({
+                "message": "Configuration saved successfully",
+                "config": config.model_dump(exclude_none=True, exclude={"llm": {"api_key"}, "graph": {"neo4j_password"}})
+            })
+        except Exception as e:
+            logger.error(f"Error updating config: {e}")
+            return web.json_response(
+                {"error": f"Failed to update config: {str(e)}"}, status=500
+            )
+
+    async def validate_config(self, request: web.Request) -> web.Response:
+        """Validate configuration without saving."""
+        try:
+            data = await request.json()
+
+            # Try to validate
+            try:
+                config = AutodocConfig.model_validate(data)
+                return web.json_response({
+                    "valid": True,
+                    "message": "Configuration is valid"
+                })
+            except Exception as validation_error:
+                return web.json_response({
+                    "valid": False,
+                    "error": str(validation_error)
+                })
+        except Exception as e:
+            logger.error(f"Error validating config: {e}")
+            return web.json_response(
+                {"error": f"Failed to validate config: {str(e)}"}, status=500
             )
 
     MAX_WEBSOCKET_CONNECTIONS = 100

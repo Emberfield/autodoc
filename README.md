@@ -56,6 +56,65 @@ autodoc graph --visualize     # Build graph database with visualizations
 autodoc serve                 # Start REST API server
 ```
 
+### Context Packs
+
+Context packs group related code by feature for focused search and AI context:
+
+```bash
+# Auto-detect and suggest packs based on codebase structure
+autodoc pack auto-generate --save
+
+# List all defined packs
+autodoc pack list
+
+# Build pack with embeddings for semantic search
+autodoc pack build auth --embeddings
+
+# Build all packs with AI summaries (requires API key)
+autodoc pack build --all --embeddings --summary
+
+# Search within a specific pack
+autodoc pack query auth "user login flow"
+
+# See pack dependencies
+autodoc pack deps auth --transitive
+
+# Check what changed since last index
+autodoc pack diff auth
+```
+
+### Impact Analysis
+
+Analyze how file changes affect your codebase:
+
+```bash
+# Analyze impact of changed files
+autodoc impact api/auth.py api/users.py --json
+
+# Check pack indexing status
+autodoc pack status
+```
+
+### MCP Server
+
+Autodoc includes an MCP (Model Context Protocol) server for AI assistant integration:
+
+```bash
+# Start MCP server
+autodoc mcp-server
+```
+
+**Available MCP Tools:**
+- `pack_list` - List all context packs
+- `pack_info` - Get details about a pack
+- `pack_query` - Semantic search within a pack
+- `pack_files` - List files in a pack
+- `pack_entities` - List code entities in a pack
+- `impact_analysis` - Analyze file change impact
+- `pack_status` - Get indexing status
+- `pack_deps` - Get pack dependencies
+- `pack_diff` - Check what changed since last index
+
 ### Python API
 
 ```python
@@ -80,16 +139,53 @@ asyncio.run(main())
 
 ## Configuration
 
-### OpenAI Integration (Optional)
+Create a `.autodoc.yaml` file in your project root:
 
-For enhanced semantic search capabilities, set up OpenAI:
+```yaml
+# LLM provider settings
+llm:
+  provider: anthropic  # or openai, ollama
+  model: claude-sonnet-4-20250514
+  temperature: 0.3
 
-```bash
-# Create .env file
-echo "OPENAI_API_KEY=sk-your-key-here" > .env
+# Embeddings - use chromadb for free local embeddings
+embeddings:
+  provider: chromadb
+  chromadb_model: all-MiniLM-L6-v2
+  dimensions: 384
+
+# Cost controls for LLM operations
+cost_control:
+  summary_model: claude-3-haiku-20240307  # Cheaper model for summaries
+  warn_entity_threshold: 100              # Warn on large packs
+  cache_summaries: true                   # Cache to avoid regenerating
+  dry_run_by_default: false
+
+# Context packs for feature-based code grouping
+context_packs:
+  - name: auth
+    display_name: Authentication
+    description: User authentication and authorization
+    files:
+      - "src/auth/**/*.py"
+      - "api/routes/auth.py"
+    security_level: critical
+    tags: [security, core]
 ```
 
-Autodoc works without OpenAI API key using simple text matching, but embeddings provide much better search results.
+### API Keys (Optional)
+
+For LLM-powered features (enrichment, summaries):
+
+```bash
+# Anthropic (recommended for summaries)
+export ANTHROPIC_API_KEY=sk-ant-...
+
+# Or OpenAI
+export OPENAI_API_KEY=sk-...
+```
+
+Note: Embeddings use local ChromaDB by default - no API key needed for semantic search!
 
 ## Development
 
