@@ -485,6 +485,285 @@ class CodeGraphQuery:
             result = session.run(query)
             return [dict(r) for r in result]
 
+    # ==========================================================================
+    # Context Pack-aware Graph Methods
+    # ==========================================================================
+
+    def find_pack_subgraph(
+        self, pack_file_patterns: List[str]
+    ) -> Dict[str, Any]:
+        """Extract a subgraph containing only entities from a context pack.
+
+        Args:
+            pack_file_patterns: List of file path patterns for the pack
+
+        Returns:
+            Dict with 'nodes' (entities) and 'edges' (relationships within pack)
+        """
+        if not self.driver:
+            return {"nodes": [], "edges": [], "error": "No database connection"}
+
+        # Build WHERE clause for file patterns
+        # Match files that contain any of the pattern substrings
+        pattern_conditions = []
+        for i, pattern in enumerate(pack_file_patterns):
+            # Remove glob wildcards and use as substring match
+            clean_pattern = pattern.replace("**", "").replace("*", "").strip("/")
+            if clean_pattern:
+                pattern_conditions.append(f"f.path CONTAINS $pattern{i}")
+
+        if not pattern_conditions:
+            return {"nodes": [], "edges": [], "error": "No valid patterns"}
+
+        where_clause = " OR ".join(pattern_conditions)
+
+        # Build params
+        params = {f"pattern{i}": p.replace("**", "").replace("*", "").strip("/")
+                  for i, p in enumerate(pack_file_patterns) if p.replace("**", "").replace("*", "").strip("/")}
+
+        query = f"""
+        MATCH (f:File)
+        WHERE {where_clause}
+        OPTIONAL MATCH (f)-[:CONTAINS]->(e)
+        WITH collect(DISTINCT f) + collect(DISTINCT e) as nodes
+        UNWIND nodes as n
+        WITH collect(DISTINCT n) as allNodes
+        UNWIND allNodes as n1
+        UNWIND allNodes as n2
+        OPTIONAL MATCH (n1)-[r]->(n2)
+        WHERE n1 <> n2
+        RETURN collect(DISTINCT {{
+            id: id(n1),
+            name: n1.name,
+            type: labels(n1)[0],
+            file_path: n1.file_path
+        }}) as nodes,
+        collect(DISTINCT {{
+            source: n1.name,
+            target: n2.name,
+            type: type(r)
+        }}) as edges
+        """
+
+        with self.driver.session() as session:
+            result = session.run(query, **params)
+            record = result.single()
+            if record:
+                # Filter out null edges
+                edges = [e for e in record["edges"] if e.get("type")]
+                return {
+                    "nodes": record["nodes"],
+                    "edges": edges,
+                    "node_count": len(record["nodes"]),
+                    "edge_count": len(edges),
+                }
+            return {"nodes": [], "edges": []}
+
+    def find_cross_pack_dependencies(
+        self,
+        pack_file_patterns: List[str],
+        all_pack_patterns: Optional[Dict[str, List[str]]] = None,
+    ) -> Dict[str, Any]:
+        """Find entities in this pack that reference entities outside the pack.
+
+        Args:
+            pack_file_patterns: File patterns for the current pack
+            all_pack_patterns: Optional dict mapping pack names to their patterns
+                               for labeling external dependencies
+
+        Returns:
+            Dict with 'external_deps' listing dependencies outside the pack
+        """
+        if not self.driver:
+            return {"external_deps": [], "error": "No database connection"}
+
+        # Build WHERE clause for pack files
+        pattern_conditions = []
+        params = {}
+        for i, pattern in enumerate(pack_file_patterns):
+            clean_pattern = pattern.replace("**", "").replace("*", "").strip("/")
+            if clean_pattern:
+                pattern_conditions.append(f"f.path CONTAINS $pattern{i}")
+                params[f"pattern{i}"] = clean_pattern
+
+        if not pattern_conditions:
+            return {"external_deps": [], "error": "No valid patterns"}
+
+        where_clause = " OR ".join(pattern_conditions)
+
+        query = f"""
+        // Find all entities in this pack
+        MATCH (f:File)-[:CONTAINS]->(e)
+        WHERE {where_clause}
+        WITH collect(e) as packEntities
+
+        // Find what pack entities call/import outside the pack
+        UNWIND packEntities as pe
+        MATCH (pe)-[r:CALLS|IMPORTS|USES]->(external)
+        WHERE NOT external IN packEntities
+        RETURN DISTINCT
+            pe.name as source_entity,
+            pe.file_path as source_file,
+            type(r) as relationship,
+            external.name as target_entity,
+            external.file_path as target_file,
+            labels(external)[0] as target_type
+        """
+
+        with self.driver.session() as session:
+            result = session.run(query, **params)
+            deps = []
+            for record in result:
+                dep = dict(record)
+                # Try to identify which pack the external entity belongs to
+                if all_pack_patterns and dep.get("target_file"):
+                    for pack_name, patterns in all_pack_patterns.items():
+                        for pattern in patterns:
+                            clean = pattern.replace("**", "").replace("*", "").strip("/")
+                            if clean and clean in str(dep.get("target_file", "")):
+                                dep["target_pack"] = pack_name
+                                break
+                deps.append(dep)
+
+            return {
+                "external_deps": deps,
+                "count": len(deps),
+            }
+
+    def expand_pack_boundary(
+        self,
+        pack_file_patterns: List[str],
+        max_hops: int = 2,
+    ) -> Dict[str, Any]:
+        """Discover code related to the pack within N hops.
+
+        This helps identify entities that should potentially be included in the pack.
+
+        Args:
+            pack_file_patterns: File patterns for the current pack
+            max_hops: Maximum relationship hops to traverse (default 2)
+
+        Returns:
+            Dict with 'suggested_files' that are closely related to the pack
+        """
+        if not self.driver:
+            return {"suggested_files": [], "error": "No database connection"}
+
+        # Build WHERE clause
+        pattern_conditions = []
+        params = {"hops": max_hops}
+        for i, pattern in enumerate(pack_file_patterns):
+            clean_pattern = pattern.replace("**", "").replace("*", "").strip("/")
+            if clean_pattern:
+                pattern_conditions.append(f"f.path CONTAINS $pattern{i}")
+                params[f"pattern{i}"] = clean_pattern
+
+        if not pattern_conditions:
+            return {"suggested_files": [], "error": "No valid patterns"}
+
+        where_clause = " OR ".join(pattern_conditions)
+
+        query = f"""
+        // Find pack files
+        MATCH (f:File)
+        WHERE {where_clause}
+        WITH collect(DISTINCT f.path) as packFiles, collect(DISTINCT f) as packFileNodes
+
+        // Find entities in pack
+        UNWIND packFileNodes as pf
+        MATCH (pf)-[:CONTAINS]->(e)
+        WITH packFiles, collect(DISTINCT e) as packEntities
+
+        // Expand to find related entities within N hops
+        UNWIND packEntities as pe
+        MATCH path = (pe)-[*1..{max_hops}]-(related)
+        WHERE NOT related.file_path IN packFiles
+          AND related.file_path IS NOT NULL
+        WITH packFiles, related.file_path as relatedFile, count(*) as connections
+        WHERE NOT relatedFile IN packFiles
+        RETURN DISTINCT relatedFile as file,
+               connections,
+               connections as relevance_score
+        ORDER BY relevance_score DESC
+        LIMIT 20
+        """
+
+        with self.driver.session() as session:
+            result = session.run(query, **params)
+            suggestions = []
+            for record in result:
+                suggestions.append({
+                    "file": record["file"],
+                    "connections": record["connections"],
+                    "relevance_score": record["relevance_score"],
+                })
+
+            return {
+                "suggested_files": suggestions,
+                "count": len(suggestions),
+                "max_hops": max_hops,
+            }
+
+    def get_pack_impact_analysis(
+        self,
+        changed_files: List[str],
+        pack_file_patterns: List[str],
+    ) -> Dict[str, Any]:
+        """Analyze the impact of file changes on a pack.
+
+        Args:
+            changed_files: List of files that were modified
+            pack_file_patterns: File patterns for the pack to analyze
+
+        Returns:
+            Dict with 'affected_entities' in the pack that may need attention
+        """
+        if not self.driver:
+            return {"affected_entities": [], "error": "No database connection"}
+
+        # Build params
+        params = {"changed_files": changed_files}
+        pattern_conditions = []
+        for i, pattern in enumerate(pack_file_patterns):
+            clean_pattern = pattern.replace("**", "").replace("*", "").strip("/")
+            if clean_pattern:
+                pattern_conditions.append(f"packFile.path CONTAINS $pattern{i}")
+                params[f"pattern{i}"] = clean_pattern
+
+        if not pattern_conditions:
+            return {"affected_entities": [], "error": "No valid patterns"}
+
+        pack_where = " OR ".join(pattern_conditions)
+
+        query = f"""
+        // Find entities in changed files
+        UNWIND $changed_files as changedPath
+        MATCH (changedFile:File {{path: changedPath}})-[:CONTAINS]->(changedEntity)
+        WITH collect(DISTINCT changedEntity) as changedEntities
+
+        // Find pack entities that depend on changed entities
+        MATCH (packFile:File)-[:CONTAINS]->(packEntity)
+        WHERE {pack_where}
+        WITH changedEntities, packEntity
+        MATCH (packEntity)-[:CALLS|IMPORTS|USES]->(dep)
+        WHERE dep IN changedEntities
+        RETURN DISTINCT
+            packEntity.name as affected_entity,
+            packEntity.file_path as file,
+            dep.name as depends_on_changed,
+            labels(packEntity)[0] as entity_type
+        """
+
+        with self.driver.session() as session:
+            result = session.run(query, **params)
+            affected = [dict(r) for r in result]
+
+            return {
+                "affected_entities": affected,
+                "count": len(affected),
+                "changed_files": changed_files,
+            }
+
 
 class CodeGraphVisualizer:
     """Visualize the code graph"""
