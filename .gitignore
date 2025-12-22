@@ -10,6 +10,7 @@ build/
 venv/
 .venv/
 autodoc_cache.json
+comprehensive_data.json
 test_install/
 
 # Autodoc generated files (cache and temp files)
