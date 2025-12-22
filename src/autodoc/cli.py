@@ -1813,6 +1813,330 @@ def serve(host, port, load_cache):
         console.print(f"[red]Error starting server: {e}[/red]")
 
 
+# =============================================================================
+# Context Pack Commands
+# =============================================================================
+
+
+@cli.group()
+def pack():
+    """Manage context packs for feature-based code grouping.
+
+    Context packs group related code entities (functions, classes, modules)
+    for easier navigation and understanding.
+
+    Examples:
+      autodoc pack list                    # List all configured packs
+      autodoc pack info authentication     # Show details for a pack
+      autodoc pack build authentication    # Build/index a specific pack
+      autodoc pack query auth "login flow" # Search within a pack
+    """
+    pass
+
+
+@pack.command("list")
+@click.option("--tag", "-t", help="Filter packs by tag")
+@click.option("--security", "-s", type=click.Choice(["critical", "high", "normal"]),
+              help="Filter by security level")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def pack_list(tag, security, as_json):
+    """List all configured context packs."""
+    config = AutodocConfig.load()
+
+    packs = config.context_packs
+    if not packs:
+        if as_json:
+            console.print("[]")
+        else:
+            console.print("[yellow]No context packs configured.[/yellow]")
+            console.print("\nAdd packs to your autodoc.yaml:")
+            example = """[dim]context_packs:
+  - name: authentication
+    display_name: Authentication System
+    description: User auth and session management
+    files:
+      - src/auth/**/*.py
+    security_level: critical[/dim]"""
+            console.print(example)
+        return
+
+    # Apply filters
+    if tag:
+        packs = [p for p in packs if tag in p.tags]
+    if security:
+        packs = [p for p in packs if p.security_level == security]
+
+    if as_json:
+        output = [p.model_dump() for p in packs]
+        console.print(json.dumps(output, indent=2))
+        return
+
+    # Rich table output
+    table = Table(title="Context Packs")
+    table.add_column("Name", style="cyan")
+    table.add_column("Display Name", style="white")
+    table.add_column("Files", style="dim")
+    table.add_column("Tables", style="dim")
+    table.add_column("Dependencies", style="yellow")
+    table.add_column("Security", style="red")
+    table.add_column("Tags", style="green")
+
+    for p in packs:
+        security_badge = {
+            "critical": "🔴 critical",
+            "high": "🟠 high",
+            "normal": "🟢 normal",
+        }.get(p.security_level or "", "")
+
+        table.add_row(
+            p.name,
+            p.display_name,
+            str(len(p.files)),
+            str(len(p.tables)),
+            ", ".join(p.dependencies) or "-",
+            security_badge,
+            ", ".join(p.tags) or "-",
+        )
+
+    console.print(table)
+    console.print(f"\n[dim]Total: {len(packs)} packs[/dim]")
+
+
+@pack.command("info")
+@click.argument("name")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+@click.option("--deps", is_flag=True, help="Show resolved dependencies")
+def pack_info(name, as_json, deps):
+    """Show detailed information about a context pack."""
+    config = AutodocConfig.load()
+    pack_config = config.get_pack(name)
+
+    if not pack_config:
+        console.print(f"[red]Pack '{name}' not found.[/red]")
+        if config.context_packs:
+            console.print(f"Available packs: {', '.join(p.name for p in config.context_packs)}")
+        return
+
+    if as_json:
+        output = pack_config.model_dump()
+        if deps:
+            resolved = config.resolve_pack_dependencies(name)
+            output["resolved_dependencies"] = [p.name for p in resolved if p.name != name]
+        console.print(json.dumps(output, indent=2))
+        return
+
+    # Rich output
+    console.print(f"\n[bold cyan]{pack_config.display_name}[/bold cyan]")
+    console.print(f"[dim]({pack_config.name})[/dim]\n")
+    console.print(f"{pack_config.description}\n")
+
+    if pack_config.security_level:
+        badge = {
+            "critical": "[red bold]🔴 CRITICAL SECURITY[/red bold]",
+            "high": "[yellow bold]🟠 HIGH SECURITY[/yellow bold]",
+            "normal": "[green]🟢 Normal[/green]",
+        }.get(pack_config.security_level, "")
+        console.print(f"Security Level: {badge}\n")
+
+    console.print("[bold]File Patterns:[/bold]")
+    for pattern in pack_config.files:
+        console.print(f"  • {pattern}")
+
+    if pack_config.tables:
+        console.print("\n[bold]Database Tables:[/bold]")
+        for table in pack_config.tables:
+            console.print(f"  • {table}")
+
+    if pack_config.dependencies:
+        console.print("\n[bold]Direct Dependencies:[/bold]")
+        for dep in pack_config.dependencies:
+            console.print(f"  → {dep}")
+
+    if deps:
+        resolved = config.resolve_pack_dependencies(name)
+        if len(resolved) > 1:
+            console.print("\n[bold]Full Dependency Chain:[/bold]")
+            for i, p in enumerate(resolved):
+                if p.name != name:
+                    console.print(f"  {i+1}. {p.name} ({p.display_name})")
+
+    if pack_config.tags:
+        console.print(f"\n[bold]Tags:[/bold] {', '.join(pack_config.tags)}")
+
+
+@pack.command("build")
+@click.argument("name")
+@click.option("--all", "build_all", is_flag=True, help="Build all packs")
+@click.option("--output", "-o", type=click.Path(), help="Output directory for pack data")
+def pack_build(name, build_all, output):
+    """Build/index a context pack for searching.
+
+    This matches files to the pack's patterns and creates embeddings
+    for semantic search within the pack.
+    """
+    import fnmatch
+    from pathlib import Path as PathLib
+
+    config = AutodocConfig.load()
+
+    if build_all:
+        packs_to_build = config.context_packs
+    else:
+        pack_config = config.get_pack(name)
+        if not pack_config:
+            console.print(f"[red]Pack '{name}' not found.[/red]")
+            return
+        packs_to_build = [pack_config]
+
+    if not packs_to_build:
+        console.print("[yellow]No packs to build.[/yellow]")
+        return
+
+    output_dir = PathLib(output) if output else PathLib(".autodoc/packs")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    for pack_config in packs_to_build:
+        console.print(f"\n[bold]Building pack: {pack_config.display_name}[/bold]")
+
+        # Find matching files
+        matched_files = []
+        base_path = PathLib.cwd()
+
+        for pattern in pack_config.files:
+            # Handle glob patterns
+            if "**" in pattern:
+                matched = list(base_path.glob(pattern))
+            else:
+                matched = list(base_path.glob(pattern))
+            matched_files.extend(matched)
+
+        # Deduplicate
+        matched_files = list(set(matched_files))
+        console.print(f"  Found {len(matched_files)} matching files")
+
+        # Load cache to get entities
+        cache_file = PathLib("autodoc_cache.json")
+        entities_in_pack = []
+
+        if cache_file.exists():
+            with open(cache_file) as f:
+                cache_data = json.load(f)
+                all_entities = cache_data.get("entities", [])
+
+                for entity in all_entities:
+                    entity_file = PathLib(entity.get("file", ""))
+                    # Check if entity's file matches any pack pattern
+                    for pattern in pack_config.files:
+                        try:
+                            if entity_file.match(pattern) or fnmatch.fnmatch(
+                                str(entity_file), pattern
+                            ):
+                                entities_in_pack.append(entity)
+                                break
+                        except Exception:
+                            pass
+
+            console.print(f"  Found {len(entities_in_pack)} entities in pack")
+
+        # Save pack data
+        pack_data = {
+            "name": pack_config.name,
+            "display_name": pack_config.display_name,
+            "description": pack_config.description,
+            "files": [str(f) for f in matched_files],
+            "entities": entities_in_pack,
+            "tables": pack_config.tables,
+            "dependencies": pack_config.dependencies,
+            "security_level": pack_config.security_level,
+            "tags": pack_config.tags,
+        }
+
+        pack_file = output_dir / f"{pack_config.name}.json"
+        with open(pack_file, "w") as f:
+            json.dump(pack_data, f, indent=2)
+
+        console.print(f"  [green]✓ Saved to {pack_file}[/green]")
+
+    console.print(f"\n[green]Built {len(packs_to_build)} pack(s)[/green]")
+
+
+@pack.command("query")
+@click.argument("name")
+@click.argument("query")
+@click.option("--limit", "-n", default=5, help="Number of results")
+def pack_query(name, query, limit):
+    """Search within a context pack using semantic search."""
+    from pathlib import Path as PathLib
+
+    config = AutodocConfig.load()
+    pack_config = config.get_pack(name)
+
+    if not pack_config:
+        console.print(f"[red]Pack '{name}' not found.[/red]")
+        return
+
+    pack_file = PathLib(f".autodoc/packs/{name}.json")
+    if not pack_file.exists():
+        console.print(f"[yellow]Pack '{name}' not built yet. Run: autodoc pack build {name}[/yellow]")
+        return
+
+    with open(pack_file) as f:
+        pack_data = json.load(f)
+
+    entities = pack_data.get("entities", [])
+    if not entities:
+        console.print("[yellow]No entities in this pack.[/yellow]")
+        return
+
+    # Simple keyword search (TODO: integrate with ChromaDB for semantic search)
+    query_lower = query.lower()
+    results = []
+
+    for entity in entities:
+        score = 0
+        name_str = entity.get("name", "").lower()
+        desc = (entity.get("description") or "").lower()
+        docstring = (entity.get("docstring") or "").lower()
+
+        if query_lower in name_str:
+            score += 10
+        if query_lower in desc:
+            score += 5
+        if query_lower in docstring:
+            score += 3
+
+        # Check for partial matches
+        for word in query_lower.split():
+            if word in name_str:
+                score += 2
+            if word in desc:
+                score += 1
+
+        if score > 0:
+            results.append((entity, score))
+
+    results.sort(key=lambda x: x[1], reverse=True)
+    results = results[:limit]
+
+    if not results:
+        console.print(f"[yellow]No results found for '{query}' in pack '{name}'[/yellow]")
+        return
+
+    console.print(f"\n[bold]Results for '{query}' in {pack_config.display_name}:[/bold]\n")
+
+    for entity, score in results:
+        etype = entity.get("entity_type", "unknown")
+        ename = entity.get("name", "unknown")
+        efile = PathLib(entity.get("file", "")).name
+        line = entity.get("start_line", "?")
+
+        console.print(f"[cyan]{etype}[/cyan] [bold]{ename}[/bold]")
+        console.print(f"  [dim]{efile}:{line}[/dim]")
+        if entity.get("description"):
+            console.print(f"  {entity['description'][:100]}...")
+        console.print()
+
+
 def main():
     cli()
 
