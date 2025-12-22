@@ -1968,12 +1968,14 @@ def pack_info(name, as_json, deps):
 @click.argument("name")
 @click.option("--all", "build_all", is_flag=True, help="Build all packs")
 @click.option("--output", "-o", type=click.Path(), help="Output directory for pack data")
-def pack_build(name, build_all, output):
+@click.option("--embeddings", "-e", is_flag=True, help="Create ChromaDB embeddings for semantic search")
+def pack_build(name, build_all, output, embeddings):
     """Build/index a context pack for searching.
 
     This matches files to the pack's patterns and creates embeddings
     for semantic search within the pack.
     """
+    import asyncio
     import fnmatch
     from pathlib import Path as PathLib
 
@@ -1994,6 +1996,16 @@ def pack_build(name, build_all, output):
 
     output_dir = PathLib(output) if output else PathLib(".autodoc/packs")
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Initialize ChromaDB embedder if requested
+    chromadb_embedder = None
+    if embeddings:
+        try:
+            from .chromadb_embedder import ChromaDBEmbedder
+            console.print("[dim]Initializing ChromaDB for pack embeddings...[/dim]")
+        except ImportError:
+            console.print("[yellow]ChromaDB not available. Install with: pip install chromadb[/yellow]")
+            embeddings = False
 
     for pack_config in packs_to_build:
         console.print(f"\n[bold]Building pack: {pack_config.display_name}[/bold]")
@@ -2017,6 +2029,7 @@ def pack_build(name, build_all, output):
         # Load cache to get entities
         cache_file = PathLib("autodoc_cache.json")
         entities_in_pack = []
+        code_entities = []
 
         if cache_file.exists():
             with open(cache_file) as f:
@@ -2032,11 +2045,43 @@ def pack_build(name, build_all, output):
                                 str(entity_file), pattern
                             ):
                                 entities_in_pack.append(entity)
+                                # Create CodeEntity for embeddings
+                                if embeddings:
+                                    from .analyzer import CodeEntity
+                                    code_entity = CodeEntity(
+                                        type=entity.get("entity_type", "function"),
+                                        name=entity.get("name", "unknown"),
+                                        file_path=entity.get("file", ""),
+                                        line_number=entity.get("start_line", 0),
+                                        docstring=entity.get("docstring"),
+                                        code=entity.get("code", ""),
+                                    )
+                                    code_entities.append(code_entity)
                                 break
                         except Exception:
                             pass
 
             console.print(f"  Found {len(entities_in_pack)} entities in pack")
+
+        # Create ChromaDB embeddings for this pack
+        if embeddings and code_entities:
+            from .chromadb_embedder import ChromaDBEmbedder
+            collection_name = f"autodoc_pack_{pack_config.name}"
+            persist_dir = str(output_dir / f"{pack_config.name}_chromadb")
+
+            chromadb_embedder = ChromaDBEmbedder(
+                collection_name=collection_name,
+                persist_directory=persist_dir,
+                embedding_model=config.embeddings.chromadb_model,
+            )
+            # Clear existing and re-embed
+            chromadb_embedder.clear_collection()
+
+            console.print(f"  [dim]Creating embeddings for {len(code_entities)} entities...[/dim]")
+            embedded_count = asyncio.get_event_loop().run_until_complete(
+                chromadb_embedder.embed_entities(code_entities, use_enrichment=True)
+            )
+            console.print(f"  [green]✓ Created {embedded_count} embeddings in {persist_dir}[/green]")
 
         # Save pack data
         pack_data = {
@@ -2049,6 +2094,7 @@ def pack_build(name, build_all, output):
             "dependencies": pack_config.dependencies,
             "security_level": pack_config.security_level,
             "tags": pack_config.tags,
+            "has_embeddings": embeddings and len(code_entities) > 0,
         }
 
         pack_file = output_dir / f"{pack_config.name}.json"
@@ -2064,8 +2110,14 @@ def pack_build(name, build_all, output):
 @click.argument("name")
 @click.argument("query")
 @click.option("--limit", "-n", default=5, help="Number of results")
-def pack_query(name, query, limit):
-    """Search within a context pack using semantic search."""
+@click.option("--keyword", "-k", is_flag=True, help="Force keyword search instead of semantic")
+def pack_query(name, query, limit, keyword):
+    """Search within a context pack using semantic search.
+
+    If the pack was built with --embeddings, uses ChromaDB semantic search.
+    Otherwise, falls back to keyword matching.
+    """
+    import asyncio
     from pathlib import Path as PathLib
 
     config = AutodocConfig.load()
@@ -2088,52 +2140,92 @@ def pack_query(name, query, limit):
         console.print("[yellow]No entities in this pack.[/yellow]")
         return
 
-    # Simple keyword search (TODO: integrate with ChromaDB for semantic search)
-    query_lower = query.lower()
+    # Try semantic search with ChromaDB if available
+    use_semantic = pack_data.get("has_embeddings", False) and not keyword
     results = []
 
-    for entity in entities:
-        score = 0
-        name_str = entity.get("name", "").lower()
-        desc = (entity.get("description") or "").lower()
-        docstring = (entity.get("docstring") or "").lower()
+    if use_semantic:
+        chromadb_dir = PathLib(f".autodoc/packs/{name}_chromadb")
+        if chromadb_dir.exists():
+            try:
+                from .chromadb_embedder import ChromaDBEmbedder
+                collection_name = f"autodoc_pack_{name}"
 
-        if query_lower in name_str:
-            score += 10
-        if query_lower in desc:
-            score += 5
-        if query_lower in docstring:
-            score += 3
+                embedder = ChromaDBEmbedder(
+                    collection_name=collection_name,
+                    persist_directory=str(chromadb_dir),
+                    embedding_model=config.embeddings.chromadb_model,
+                )
 
-        # Check for partial matches
-        for word in query_lower.split():
-            if word in name_str:
-                score += 2
-            if word in desc:
-                score += 1
+                console.print("[dim]Using semantic search...[/dim]")
+                search_results = asyncio.get_event_loop().run_until_complete(
+                    embedder.search(query, limit=limit)
+                )
 
-        if score > 0:
-            results.append((entity, score))
+                for r in search_results:
+                    entity_data = {
+                        "entity_type": r["entity"]["type"],
+                        "name": r["entity"]["name"],
+                        "file": r["entity"]["file_path"],
+                        "start_line": r["entity"]["line_number"],
+                        "description": r.get("document", "")[:200],
+                    }
+                    results.append((entity_data, r["similarity"]))
 
-    results.sort(key=lambda x: x[1], reverse=True)
-    results = results[:limit]
+            except Exception as e:
+                console.print(f"[yellow]Semantic search unavailable: {e}. Falling back to keyword search.[/yellow]")
+                use_semantic = False
+
+    # Fall back to keyword search
+    if not use_semantic:
+        console.print("[dim]Using keyword search...[/dim]")
+        query_lower = query.lower()
+
+        for entity in entities:
+            score = 0
+            name_str = entity.get("name", "").lower()
+            desc = (entity.get("description") or "").lower()
+            docstring = (entity.get("docstring") or "").lower()
+
+            if query_lower in name_str:
+                score += 10
+            if query_lower in desc:
+                score += 5
+            if query_lower in docstring:
+                score += 3
+
+            # Check for partial matches
+            for word in query_lower.split():
+                if word in name_str:
+                    score += 2
+                if word in desc:
+                    score += 1
+
+            if score > 0:
+                results.append((entity, score / 20.0))  # Normalize to ~0-1 range
+
+        results.sort(key=lambda x: x[1], reverse=True)
+        results = results[:limit]
 
     if not results:
         console.print(f"[yellow]No results found for '{query}' in pack '{name}'[/yellow]")
         return
 
-    console.print(f"\n[bold]Results for '{query}' in {pack_config.display_name}:[/bold]\n")
+    search_type = "semantic" if use_semantic else "keyword"
+    console.print(f"\n[bold]Results for '{query}' in {pack_config.display_name} ({search_type}):[/bold]\n")
 
     for entity, score in results:
         etype = entity.get("entity_type", "unknown")
         ename = entity.get("name", "unknown")
         efile = PathLib(entity.get("file", "")).name
         line = entity.get("start_line", "?")
+        similarity = f"{score:.2f}" if use_semantic else f"{score:.1f}"
 
-        console.print(f"[cyan]{etype}[/cyan] [bold]{ename}[/bold]")
+        console.print(f"[cyan]{etype}[/cyan] [bold]{ename}[/bold] [dim](score: {similarity})[/dim]")
         console.print(f"  [dim]{efile}:{line}[/dim]")
         if entity.get("description"):
-            console.print(f"  {entity['description'][:100]}...")
+            desc_text = entity['description'][:100]
+            console.print(f"  {desc_text}...")
         console.print()
 
 
