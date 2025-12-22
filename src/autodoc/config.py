@@ -59,6 +59,27 @@ class EnrichmentConfig(BaseModel):
     )
 
 
+class CostControlConfig(BaseModel):
+    """Configuration for controlling LLM API costs."""
+
+    max_tokens_per_run: Optional[int] = Field(
+        None, description="Maximum tokens allowed per run (None = unlimited)"
+    )
+    warn_entity_threshold: int = Field(
+        100, ge=0, description="Warn when pack has more than this many entities"
+    )
+    summary_model: Optional[str] = Field(
+        None,
+        description="Cheaper model to use for pack summaries (e.g., 'claude-3-haiku-20240307', 'gpt-4o-mini'). If None, uses llm.model"
+    )
+    cache_summaries: bool = Field(
+        True, description="Cache pack summaries to avoid regenerating unchanged content"
+    )
+    dry_run_by_default: bool = Field(
+        False, description="Run in dry-run mode by default (show what would happen without API calls)"
+    )
+
+
 class EmbeddingsConfig(BaseModel):
     """Configuration for embeddings generation."""
 
@@ -190,6 +211,9 @@ class AutodocConfig(BaseModel):
     analysis: AnalysisConfig = Field(default_factory=AnalysisConfig, description="Analysis settings")
     output: OutputConfig = Field(default_factory=OutputConfig, description="Output settings")
     database: DatabaseConfig = Field(default_factory=DatabaseConfig, description="Database schema settings")
+    cost_control: CostControlConfig = Field(
+        default_factory=CostControlConfig, description="Cost control settings for LLM API usage"
+    )
     context_packs: List[ContextPackConfig] = Field(
         default_factory=list, description="Context packs for feature-based code grouping"
     )
