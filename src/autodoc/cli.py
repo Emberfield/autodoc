@@ -2037,30 +2037,65 @@ def pack_build(name, build_all, output, embeddings, summary):
                 cache_data = json.load(f)
                 all_entities = cache_data.get("entities", [])
 
+                def matches_pattern(file_path: str, pattern: str) -> bool:
+                    """Check if a file path matches a glob pattern."""
+                    # Normalize paths - handle both absolute and relative
+                    file_path_obj = PathLib(file_path)
+                    file_str = str(file_path_obj)
+
+                    # Try multiple matching strategies
+                    try:
+                        # 1. Direct fnmatch (handles ** patterns)
+                        if fnmatch.fnmatch(file_str, pattern):
+                            return True
+
+                        # 2. PathLib.match (matches from the right)
+                        if file_path_obj.match(pattern):
+                            return True
+
+                        # 3. Try matching just the relative part after common prefixes
+                        # Handle cases where cache has relative paths but pattern has same structure
+                        pattern_parts = pattern.replace("**", "").replace("*", "").strip("/")
+                        if pattern_parts and pattern_parts in file_str:
+                            # Pattern base directory is in file path
+                            if fnmatch.fnmatch(file_str, f"*{pattern}"):
+                                return True
+                            if fnmatch.fnmatch(file_str, f"**/{pattern}"):
+                                return True
+
+                        # 4. Handle glob patterns by checking if file is under the pattern's directory
+                        if "**" in pattern:
+                            base_pattern = pattern.split("**")[0].rstrip("/")
+                            if base_pattern and base_pattern in file_str:
+                                # File is under the base directory
+                                suffix = pattern.split("**")[-1].lstrip("/")
+                                if not suffix or fnmatch.fnmatch(file_str, f"*{suffix}"):
+                                    return True
+
+                    except Exception:
+                        pass
+
+                    return False
+
                 for entity in all_entities:
-                    entity_file = PathLib(entity.get("file", ""))
+                    entity_file = entity.get("file", "")
                     # Check if entity's file matches any pack pattern
                     for pattern in pack_config.files:
-                        try:
-                            if entity_file.match(pattern) or fnmatch.fnmatch(
-                                str(entity_file), pattern
-                            ):
-                                entities_in_pack.append(entity)
-                                # Create CodeEntity for embeddings
-                                if embeddings:
-                                    from .analyzer import CodeEntity
-                                    code_entity = CodeEntity(
-                                        type=entity.get("entity_type", "function"),
-                                        name=entity.get("name", "unknown"),
-                                        file_path=entity.get("file", ""),
-                                        line_number=entity.get("start_line", 0),
-                                        docstring=entity.get("docstring"),
-                                        code=entity.get("code", ""),
-                                    )
-                                    code_entities.append(code_entity)
-                                break
-                        except Exception:
-                            pass
+                        if matches_pattern(entity_file, pattern):
+                            entities_in_pack.append(entity)
+                            # Create CodeEntity for embeddings
+                            if embeddings:
+                                from .analyzer import CodeEntity
+                                code_entity = CodeEntity(
+                                    type=entity.get("entity_type", "function"),
+                                    name=entity.get("name", "unknown"),
+                                    file_path=entity_file,
+                                    line_number=entity.get("start_line", 0),
+                                    docstring=entity.get("docstring"),
+                                    code=entity.get("code", ""),
+                                )
+                                code_entities.append(code_entity)
+                            break
 
             console.print(f"  Found {len(entities_in_pack)} entities in pack")
 
