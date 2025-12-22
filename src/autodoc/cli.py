@@ -2078,7 +2078,8 @@ def pack_build(name, build_all, output, embeddings, summary):
                     return False
 
                 for entity in all_entities:
-                    entity_file = entity.get("file", "")
+                    # Handle both 'file_path' (new format) and 'file' (old format)
+                    entity_file = entity.get("file_path", entity.get("file", ""))
                     # Check if entity's file matches any pack pattern
                     for pattern in pack_config.files:
                         if matches_pattern(entity_file, pattern):
