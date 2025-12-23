@@ -22,9 +22,7 @@ class TestSimpleAutodoc:
         # Create config with chromadb for local embeddings (no API key needed)
         from autodoc.config import AutodocConfig, EmbeddingsConfig
 
-        config = AutodocConfig(
-            embeddings=EmbeddingsConfig(provider="chromadb")
-        )
+        config = AutodocConfig(embeddings=EmbeddingsConfig(provider="chromadb"))
 
         autodoc = SimpleAutodoc(config=config)
         summary = await autodoc.analyze_directory(sample_project_dir)
@@ -43,9 +41,7 @@ class TestSimpleAutodoc:
         # Create config with OpenAI as provider
         from autodoc.config import AutodocConfig, EmbeddingsConfig
 
-        config = AutodocConfig(
-            embeddings=EmbeddingsConfig(provider="openai")
-        )
+        config = AutodocConfig(embeddings=EmbeddingsConfig(provider="openai"))
 
         with patch("autodoc.embedder.OpenAIEmbedder.embed_batch") as mock_embed:
             mock_embed.return_value = [[0.1, 0.2] for _ in range(20)]  # More embeddings
@@ -221,9 +217,7 @@ class TestSimpleAutodoc:
         # Create config with OpenAI as provider
         from autodoc.config import AutodocConfig, EmbeddingsConfig
 
-        config = AutodocConfig(
-            embeddings=EmbeddingsConfig(provider="openai")
-        )
+        config = AutodocConfig(embeddings=EmbeddingsConfig(provider="openai"))
 
         autodoc = SimpleAutodoc(config=config)
         assert autodoc.embedder is not None
