@@ -12,7 +12,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .autodoc import SimpleAutodoc
-from .config import AutodocConfig
+from .config import AutodocConfig, ContextPackConfig
 from .enrichment import EnrichmentCache, LLMEnricher
 from .inline_enrichment import InlineEnricher, ModuleEnrichmentGenerator
 
@@ -745,14 +745,10 @@ def check():
         try:
             from .chromadb_embedder import ChromaDBEmbedder
 
-            embedder = ChromaDBEmbedder(
-                persist_directory=config.embeddings.persist_directory
-            )
+            embedder = ChromaDBEmbedder(persist_directory=config.embeddings.persist_directory)
             stats = embedder.get_stats()
             console.print("✅ ChromaDB configured")
-            console.print(
-                f"   Model: {config.embeddings.chromadb_model}"
-            )
+            console.print(f"   Model: {config.embeddings.chromadb_model}")
             console.print(f"   Embeddings: {stats['total_embeddings']}")
             console.print(f"   Directory: {stats['persist_directory']}")
         except Exception as e:
@@ -1836,8 +1832,12 @@ def pack():
 
 @pack.command("list")
 @click.option("--tag", "-t", help="Filter packs by tag")
-@click.option("--security", "-s", type=click.Choice(["critical", "high", "normal"]),
-              help="Filter by security level")
+@click.option(
+    "--security",
+    "-s",
+    type=click.Choice(["critical", "high", "normal"]),
+    help="Filter by security level",
+)
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
 def pack_list(tag, security, as_json):
     """List all configured context packs."""
@@ -1958,7 +1958,7 @@ def pack_info(name, as_json, deps):
             console.print("\n[bold]Full Dependency Chain:[/bold]")
             for i, p in enumerate(resolved):
                 if p.name != name:
-                    console.print(f"  {i+1}. {p.name} ({p.display_name})")
+                    console.print(f"  {i + 1}. {p.name} ({p.display_name})")
 
     if pack_config.tags:
         console.print(f"\n[bold]Tags:[/bold] {', '.join(pack_config.tags)}")
@@ -1968,9 +1968,13 @@ def pack_info(name, as_json, deps):
 @click.argument("name")
 @click.option("--all", "build_all", is_flag=True, help="Build all packs")
 @click.option("--output", "-o", type=click.Path(), help="Output directory for pack data")
-@click.option("--embeddings", "-e", is_flag=True, help="Create ChromaDB embeddings for semantic search")
+@click.option(
+    "--embeddings", "-e", is_flag=True, help="Create ChromaDB embeddings for semantic search"
+)
 @click.option("--summary", "-s", is_flag=True, help="Generate LLM summary for each pack")
-@click.option("--dry-run", is_flag=True, help="Show what would be processed without making API calls")
+@click.option(
+    "--dry-run", is_flag=True, help="Show what would be processed without making API calls"
+)
 @click.option("--no-cache", is_flag=True, help="Force regeneration of LLM summaries (ignore cache)")
 def pack_build(name, build_all, output, embeddings, summary, dry_run, no_cache):
     """Build/index a context pack for searching.
@@ -2007,9 +2011,12 @@ def pack_build(name, build_all, output, embeddings, summary, dry_run, no_cache):
     if embeddings:
         try:
             from .chromadb_embedder import ChromaDBEmbedder
+
             console.print("[dim]Initializing ChromaDB for pack embeddings...[/dim]")
         except ImportError:
-            console.print("[yellow]ChromaDB not available. Install with: pip install chromadb[/yellow]")
+            console.print(
+                "[yellow]ChromaDB not available. Install with: pip install chromadb[/yellow]"
+            )
             embeddings = False
 
     for pack_config in packs_to_build:
@@ -2091,6 +2098,7 @@ def pack_build(name, build_all, output, embeddings, summary, dry_run, no_cache):
                             # Create CodeEntity for embeddings
                             if embeddings:
                                 from .analyzer import CodeEntity
+
                                 code_entity = CodeEntity(
                                     type=entity.get("entity_type", "function"),
                                     name=entity.get("name", "unknown"),
@@ -2106,37 +2114,46 @@ def pack_build(name, build_all, output, embeddings, summary, dry_run, no_cache):
 
         # Dry run mode - show what would be processed without making API calls
         if dry_run:
-            console.print(f"\n  [cyan]DRY RUN - No changes will be made[/cyan]")
+            console.print("\n  [cyan]DRY RUN - No changes will be made[/cyan]")
             console.print(f"  • Files to index: {len(matched_files)}")
             console.print(f"  • Entities to embed: {len(entities_in_pack)}")
 
             if embeddings:
-                console.print(f"  • Embeddings: Would create ChromaDB collection 'autodoc_pack_{pack_config.name}'")
-                console.print(f"    [dim](Uses local sentence-transformers - no API cost)[/dim]")
+                console.print(
+                    f"  • Embeddings: Would create ChromaDB collection 'autodoc_pack_{pack_config.name}'"
+                )
+                console.print("    [dim](Uses local sentence-transformers - no API cost)[/dim]")
 
             if summary:
                 # Estimate tokens for LLM summary
                 # Rough estimate: pack info + entity names/docstrings
                 entity_text = ""
                 for e in entities_in_pack[:50]:  # Sample first 50
-                    docstring = e.get('docstring') or ''  # Handle None docstrings
+                    docstring = e.get("docstring") or ""  # Handle None docstrings
                     entity_text += f"{e.get('name', '')} {docstring[:100]} "
                 estimated_input_tokens = len(entity_text.split()) * 2  # Rough token estimate
                 estimated_input_tokens += 500  # System prompt overhead
 
-                console.print(f"  • LLM Summary: Would call {config.llm.provider}/{config.llm.model}")
+                console.print(
+                    f"  • LLM Summary: Would call {config.llm.provider}/{config.llm.model}"
+                )
                 console.print(f"    [dim]Estimated input tokens: ~{estimated_input_tokens}[/dim]")
 
                 # Cost warnings for large packs
                 if len(entities_in_pack) > 100:
-                    console.print(f"    [yellow]⚠ Large pack ({len(entities_in_pack)} entities) - consider using a smaller model[/yellow]")
-                    console.print(f"    [dim]Tip: Configure llm.model in autodoc.yaml (e.g., claude-3-haiku-20240307, gpt-4o-mini)[/dim]")
+                    console.print(
+                        f"    [yellow]⚠ Large pack ({len(entities_in_pack)} entities) - consider using a smaller model[/yellow]"
+                    )
+                    console.print(
+                        "    [dim]Tip: Configure llm.model in autodoc.yaml (e.g., claude-3-haiku-20240307, gpt-4o-mini)[/dim]"
+                    )
 
             continue  # Skip to next pack in dry-run mode
 
         # Create ChromaDB embeddings for this pack
         if embeddings and code_entities:
             from .chromadb_embedder import ChromaDBEmbedder
+
             collection_name = f"autodoc_pack_{pack_config.name}"
             persist_dir = str(output_dir / f"{pack_config.name}_chromadb")
 
@@ -2152,7 +2169,9 @@ def pack_build(name, build_all, output, embeddings, summary, dry_run, no_cache):
             embedded_count = asyncio.get_event_loop().run_until_complete(
                 chromadb_embedder.embed_entities(code_entities, use_enrichment=True)
             )
-            console.print(f"  [green]✓ Created {embedded_count} embeddings in {persist_dir}[/green]")
+            console.print(
+                f"  [green]✓ Created {embedded_count} embeddings in {persist_dir}[/green]"
+            )
 
         # Generate LLM summary if requested
         llm_summary = None
@@ -2171,9 +2190,9 @@ def pack_build(name, build_all, output, embeddings, summary, dry_run, no_cache):
 
                 if cached_summary:
                     llm_summary = cached_summary
-                    console.print(f"  [green]✓ Using cached LLM summary (content unchanged)[/green]")
+                    console.print("  [green]✓ Using cached LLM summary (content unchanged)[/green]")
                 else:
-                    console.print(f"  [dim]Generating LLM summary...[/dim]")
+                    console.print("  [dim]Generating LLM summary...[/dim]")
 
                     async def generate_summary():
                         async with LLMEnricher(config) as enricher:
@@ -2189,9 +2208,11 @@ def pack_build(name, build_all, output, embeddings, summary, dry_run, no_cache):
                             # Return both the summary and token usage
                             return result, enricher.get_token_usage()
 
-                    llm_summary, token_usage = asyncio.get_event_loop().run_until_complete(generate_summary())
+                    llm_summary, token_usage = asyncio.get_event_loop().run_until_complete(
+                        generate_summary()
+                    )
                     if llm_summary:
-                        console.print(f"  [green]✓ Generated LLM summary[/green]")
+                        console.print("  [green]✓ Generated LLM summary[/green]")
                         # Display token usage
                         if token_usage.get("total_tokens", 0) > 0:
                             console.print(
@@ -2204,7 +2225,9 @@ def pack_build(name, build_all, output, embeddings, summary, dry_run, no_cache):
                         )
                         summary_cache.save_cache()
                     else:
-                        console.print(f"  [yellow]⚠ LLM summary generation failed (check API key)[/yellow]")
+                        console.print(
+                            "  [yellow]⚠ LLM summary generation failed (check API key)[/yellow]"
+                        )
             except Exception as e:
                 console.print(f"  [yellow]⚠ Error generating summary: {e}[/yellow]")
 
@@ -2237,7 +2260,9 @@ def pack_build(name, build_all, output, embeddings, summary, dry_run, no_cache):
 @click.argument("query")
 @click.option("--limit", "-n", default=5, help="Number of results")
 @click.option("--keyword", "-k", is_flag=True, help="Force keyword search instead of semantic")
-@click.option("--json", "output_json", is_flag=True, help="Output results as JSON for programmatic use")
+@click.option(
+    "--json", "output_json", is_flag=True, help="Output results as JSON for programmatic use"
+)
 def pack_query(name, query, limit, keyword, output_json):
     """Search within a context pack using semantic search.
 
@@ -2258,7 +2283,9 @@ def pack_query(name, query, limit, keyword, output_json):
 
     pack_file = PathLib(f".autodoc/packs/{name}.json")
     if not pack_file.exists():
-        console.print(f"[yellow]Pack '{name}' not built yet. Run: autodoc pack build {name}[/yellow]")
+        console.print(
+            f"[yellow]Pack '{name}' not built yet. Run: autodoc pack build {name}[/yellow]"
+        )
         return
 
     with open(pack_file) as f:
@@ -2278,6 +2305,7 @@ def pack_query(name, query, limit, keyword, output_json):
         if chromadb_dir.exists():
             try:
                 from .chromadb_embedder import ChromaDBEmbedder
+
                 collection_name = f"autodoc_pack_{name}"
 
                 embedder = ChromaDBEmbedder(
@@ -2302,7 +2330,9 @@ def pack_query(name, query, limit, keyword, output_json):
                     results.append((entity_data, r["similarity"]))
 
             except Exception as e:
-                console.print(f"[yellow]Semantic search unavailable: {e}. Falling back to keyword search.[/yellow]")
+                console.print(
+                    f"[yellow]Semantic search unavailable: {e}. Falling back to keyword search.[/yellow]"
+                )
                 use_semantic = False
 
     # Fall back to keyword search
@@ -2340,7 +2370,17 @@ def pack_query(name, query, limit, keyword, output_json):
 
     if not results:
         if output_json:
-            print(json.dumps({"query": query, "pack": name, "search_type": search_type, "results": [], "total": 0}))
+            print(
+                json.dumps(
+                    {
+                        "query": query,
+                        "pack": name,
+                        "search_type": search_type,
+                        "results": [],
+                        "total": 0,
+                    }
+                )
+            )
         else:
             console.print(f"[yellow]No results found for '{query}' in pack '{name}'[/yellow]")
         return
@@ -2349,14 +2389,16 @@ def pack_query(name, query, limit, keyword, output_json):
     if output_json:
         json_results = []
         for entity, score in results:
-            json_results.append({
-                "type": entity.get("entity_type", "unknown"),
-                "name": entity.get("name", "unknown"),
-                "file": entity.get("file", ""),
-                "line": entity.get("start_line", 0),
-                "score": round(score, 3),
-                "preview": (entity.get("description") or entity.get("docstring") or "")[:200],
-            })
+            json_results.append(
+                {
+                    "type": entity.get("entity_type", "unknown"),
+                    "name": entity.get("name", "unknown"),
+                    "file": entity.get("file", ""),
+                    "line": entity.get("start_line", 0),
+                    "score": round(score, 3),
+                    "preview": (entity.get("description") or entity.get("docstring") or "")[:200],
+                }
+            )
         output = {
             "query": query,
             "pack": name,
@@ -2368,7 +2410,9 @@ def pack_query(name, query, limit, keyword, output_json):
         return
 
     # Rich console output
-    console.print(f"\n[bold]Results for '{query}' in {pack_config.display_name} ({search_type}):[/bold]\n")
+    console.print(
+        f"\n[bold]Results for '{query}' in {pack_config.display_name} ({search_type}):[/bold]\n"
+    )
 
     for entity, score in results:
         etype = entity.get("entity_type", "unknown")
@@ -2380,7 +2424,7 @@ def pack_query(name, query, limit, keyword, output_json):
         console.print(f"[cyan]{etype}[/cyan] [bold]{ename}[/bold] [dim](score: {similarity})[/dim]")
         console.print(f"  [dim]{efile}:{line}[/dim]")
         if entity.get("description"):
-            desc_text = entity['description'][:100]
+            desc_text = entity["description"][:100]
             console.print(f"  {desc_text}...")
         console.print()
 
@@ -2389,7 +2433,12 @@ def pack_query(name, query, limit, keyword, output_json):
 @click.option("--save", is_flag=True, help="Save generated packs to autodoc.yaml")
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON for programmatic use")
 @click.option("--min-files", default=3, help="Minimum files for a pack (default: 3)")
-@click.option("--root", "root_path", type=click.Path(exists=True), help="Root directory to scan (default: current directory)")
+@click.option(
+    "--root",
+    "root_path",
+    type=click.Path(exists=True),
+    help="Root directory to scan (default: current directory)",
+)
 def pack_auto_generate(save, output_json, min_files, root_path):
     """Automatically detect and suggest context packs based on codebase structure.
 
@@ -2403,7 +2452,6 @@ def pack_auto_generate(save, output_json, min_files, root_path):
     Use --root to specify a different base directory (useful in Docker/CI).
     """
     from pathlib import Path as PathLib
-    import fnmatch
 
     config = AutodocConfig.load()
     base_path = PathLib(root_path) if root_path else PathLib.cwd()
@@ -2412,40 +2460,196 @@ def pack_auto_generate(save, output_json, min_files, root_path):
     # Known pack patterns to detect
     pack_patterns = [
         # Standard code organization
-        {"pattern": "src/**/*.py", "name": "source", "display": "Source Code", "desc": "Main source code", "tags": ["core"]},
-        {"pattern": "api/**/*.py", "name": "api", "display": "API Layer", "desc": "API endpoints and routes", "tags": ["api"]},
-        {"pattern": "tests/**/*.py", "name": "tests", "display": "Test Suite", "desc": "Test files and fixtures", "tags": ["tests"]},
-        {"pattern": "lib/**/*.py", "name": "lib", "display": "Library Code", "desc": "Shared library code", "tags": ["core"]},
-        {"pattern": "utils/**/*.py", "name": "utils", "display": "Utilities", "desc": "Utility functions and helpers", "tags": ["utilities"]},
-        {"pattern": "models/**/*.py", "name": "models", "display": "Data Models", "desc": "Data models and schemas", "tags": ["data"]},
-        {"pattern": "services/**/*.py", "name": "services", "display": "Services", "desc": "Business logic services", "tags": ["core"]},
-        {"pattern": "controllers/**/*.py", "name": "controllers", "display": "Controllers", "desc": "Request handlers and controllers", "tags": ["api"]},
-        {"pattern": "routes/**/*.py", "name": "routes", "display": "Routes", "desc": "API route definitions", "tags": ["api"]},
-        {"pattern": "middleware/**/*.py", "name": "middleware", "display": "Middleware", "desc": "Request/response middleware", "tags": ["api"]},
-        {"pattern": "tasks/**/*.py", "name": "tasks", "display": "Background Tasks", "desc": "Async tasks and jobs", "tags": ["async"]},
-        {"pattern": "workers/**/*.py", "name": "workers", "display": "Workers", "desc": "Background workers and processors", "tags": ["async"]},
-        {"pattern": "migrations/**/*.py", "name": "migrations", "display": "Database Migrations", "desc": "Database migration files", "tags": ["database"]},
-        {"pattern": "config/**/*.py", "name": "config", "display": "Configuration", "desc": "Configuration modules", "tags": ["config"]},
-        {"pattern": "scripts/**/*.py", "name": "scripts", "display": "Scripts", "desc": "Utility and automation scripts", "tags": ["tools"]},
-        {"pattern": "cli/**/*.py", "name": "cli", "display": "CLI Commands", "desc": "Command-line interface", "tags": ["cli"]},
+        {
+            "pattern": "src/**/*.py",
+            "name": "source",
+            "display": "Source Code",
+            "desc": "Main source code",
+            "tags": ["core"],
+        },
+        {
+            "pattern": "api/**/*.py",
+            "name": "api",
+            "display": "API Layer",
+            "desc": "API endpoints and routes",
+            "tags": ["api"],
+        },
+        {
+            "pattern": "tests/**/*.py",
+            "name": "tests",
+            "display": "Test Suite",
+            "desc": "Test files and fixtures",
+            "tags": ["tests"],
+        },
+        {
+            "pattern": "lib/**/*.py",
+            "name": "lib",
+            "display": "Library Code",
+            "desc": "Shared library code",
+            "tags": ["core"],
+        },
+        {
+            "pattern": "utils/**/*.py",
+            "name": "utils",
+            "display": "Utilities",
+            "desc": "Utility functions and helpers",
+            "tags": ["utilities"],
+        },
+        {
+            "pattern": "models/**/*.py",
+            "name": "models",
+            "display": "Data Models",
+            "desc": "Data models and schemas",
+            "tags": ["data"],
+        },
+        {
+            "pattern": "services/**/*.py",
+            "name": "services",
+            "display": "Services",
+            "desc": "Business logic services",
+            "tags": ["core"],
+        },
+        {
+            "pattern": "controllers/**/*.py",
+            "name": "controllers",
+            "display": "Controllers",
+            "desc": "Request handlers and controllers",
+            "tags": ["api"],
+        },
+        {
+            "pattern": "routes/**/*.py",
+            "name": "routes",
+            "display": "Routes",
+            "desc": "API route definitions",
+            "tags": ["api"],
+        },
+        {
+            "pattern": "middleware/**/*.py",
+            "name": "middleware",
+            "display": "Middleware",
+            "desc": "Request/response middleware",
+            "tags": ["api"],
+        },
+        {
+            "pattern": "tasks/**/*.py",
+            "name": "tasks",
+            "display": "Background Tasks",
+            "desc": "Async tasks and jobs",
+            "tags": ["async"],
+        },
+        {
+            "pattern": "workers/**/*.py",
+            "name": "workers",
+            "display": "Workers",
+            "desc": "Background workers and processors",
+            "tags": ["async"],
+        },
+        {
+            "pattern": "migrations/**/*.py",
+            "name": "migrations",
+            "display": "Database Migrations",
+            "desc": "Database migration files",
+            "tags": ["database"],
+        },
+        {
+            "pattern": "config/**/*.py",
+            "name": "config",
+            "display": "Configuration",
+            "desc": "Configuration modules",
+            "tags": ["config"],
+        },
+        {
+            "pattern": "scripts/**/*.py",
+            "name": "scripts",
+            "display": "Scripts",
+            "desc": "Utility and automation scripts",
+            "tags": ["tools"],
+        },
+        {
+            "pattern": "cli/**/*.py",
+            "name": "cli",
+            "display": "CLI Commands",
+            "desc": "Command-line interface",
+            "tags": ["cli"],
+        },
         # TypeScript/JavaScript
-        {"pattern": "src/**/*.ts", "name": "source-ts", "display": "TypeScript Source", "desc": "TypeScript source code", "tags": ["core"]},
-        {"pattern": "src/**/*.tsx", "name": "react-components", "display": "React Components", "desc": "React component files", "tags": ["frontend", "ui"]},
-        {"pattern": "components/**/*.tsx", "name": "components", "display": "UI Components", "desc": "React/Vue/Svelte components", "tags": ["frontend", "ui"]},
-        {"pattern": "pages/**/*.tsx", "name": "pages", "display": "Pages", "desc": "Page components", "tags": ["frontend"]},
-        {"pattern": "hooks/**/*.ts", "name": "hooks", "display": "React Hooks", "desc": "Custom React hooks", "tags": ["frontend"]},
-        {"pattern": "store/**/*.ts", "name": "store", "display": "State Store", "desc": "State management", "tags": ["frontend"]},
+        {
+            "pattern": "src/**/*.ts",
+            "name": "source-ts",
+            "display": "TypeScript Source",
+            "desc": "TypeScript source code",
+            "tags": ["core"],
+        },
+        {
+            "pattern": "src/**/*.tsx",
+            "name": "react-components",
+            "display": "React Components",
+            "desc": "React component files",
+            "tags": ["frontend", "ui"],
+        },
+        {
+            "pattern": "components/**/*.tsx",
+            "name": "components",
+            "display": "UI Components",
+            "desc": "React/Vue/Svelte components",
+            "tags": ["frontend", "ui"],
+        },
+        {
+            "pattern": "pages/**/*.tsx",
+            "name": "pages",
+            "display": "Pages",
+            "desc": "Page components",
+            "tags": ["frontend"],
+        },
+        {
+            "pattern": "hooks/**/*.ts",
+            "name": "hooks",
+            "display": "React Hooks",
+            "desc": "Custom React hooks",
+            "tags": ["frontend"],
+        },
+        {
+            "pattern": "store/**/*.ts",
+            "name": "store",
+            "display": "State Store",
+            "desc": "State management",
+            "tags": ["frontend"],
+        },
     ]
 
-    # Framework-specific patterns
-    framework_patterns = [
+    # Framework-specific patterns (reserved for future use)
+    _framework_patterns = [
         # Django
-        {"marker": "**/models.py", "adjacent": "**/views.py", "name_suffix": "-app", "framework": "django", "tags": ["django"]},
-        {"marker": "**/admin.py", "name_suffix": "-admin", "display_suffix": "Admin", "framework": "django", "tags": ["django", "admin"]},
+        {
+            "marker": "**/models.py",
+            "adjacent": "**/views.py",
+            "name_suffix": "-app",
+            "framework": "django",
+            "tags": ["django"],
+        },
+        {
+            "marker": "**/admin.py",
+            "name_suffix": "-admin",
+            "display_suffix": "Admin",
+            "framework": "django",
+            "tags": ["django", "admin"],
+        },
         # FastAPI
-        {"marker": "**/routers/**/*.py", "name": "fastapi-routers", "display": "FastAPI Routers", "framework": "fastapi", "tags": ["fastapi", "api"]},
+        {
+            "marker": "**/routers/**/*.py",
+            "name": "fastapi-routers",
+            "display": "FastAPI Routers",
+            "framework": "fastapi",
+            "tags": ["fastapi", "api"],
+        },
         # React
-        {"marker": "src/components/**/*.tsx", "name": "react-components", "display": "React Components", "framework": "react", "tags": ["react", "frontend"]},
+        {
+            "marker": "src/components/**/*.tsx",
+            "name": "react-components",
+            "display": "React Components",
+            "framework": "react",
+            "tags": ["react", "frontend"],
+        },
     ]
 
     # Detect language from markers
@@ -2468,12 +2672,12 @@ def pack_auto_generate(save, output_json, min_files, root_path):
             break
 
     if not output_json:
-        console.print(f"[bold]Scanning codebase for pack suggestions...[/bold]")
+        console.print("[bold]Scanning codebase for pack suggestions...[/bold]")
         if detected_language:
             console.print(f"[dim]Detected language: {detected_language}[/dim]\n")
 
-    # Filter patterns by detected language
-    language_extensions = {
+    # Filter patterns by detected language (reserved for future use)
+    _language_extensions = {
         "python": [".py"],
         "javascript": [".js", ".jsx"],
         "typescript": [".ts", ".tsx"],
@@ -2496,16 +2700,18 @@ def pack_auto_generate(save, output_json, min_files, root_path):
             if pack_info["name"] in existing_pack_names:
                 continue
 
-            suggested_packs.append({
-                "name": pack_info["name"],
-                "display_name": pack_info["display"],
-                "description": pack_info["desc"],
-                "files": [pattern],
-                "file_count": len(matching_files),
-                "tags": pack_info.get("tags", []),
-                "tables": [],
-                "dependencies": [],
-            })
+            suggested_packs.append(
+                {
+                    "name": pack_info["name"],
+                    "display_name": pack_info["display"],
+                    "description": pack_info["desc"],
+                    "files": [pattern],
+                    "file_count": len(matching_files),
+                    "tags": pack_info.get("tags", []),
+                    "tables": [],
+                    "dependencies": [],
+                }
+            )
 
     # Detect Django apps (directories with models.py)
     for models_file in base_path.glob("**/models.py"):
@@ -2524,22 +2730,26 @@ def pack_auto_generate(save, output_json, min_files, root_path):
             # Count Python files in this app
             py_files = list(app_dir.glob("**/*.py"))
             if len(py_files) >= min_files:
-                suggested_packs.append({
-                    "name": app_name,
-                    "display_name": f"{app_name.replace('_', ' ').title()} App",
-                    "description": f"Django app for {app_name.replace('_', ' ')}",
-                    "files": [f"{app_dir.relative_to(base_path)}/**/*.py"],
-                    "file_count": len(py_files),
-                    "tags": ["django", "app"],
-                    "tables": [],
-                    "dependencies": [],
-                })
+                suggested_packs.append(
+                    {
+                        "name": app_name,
+                        "display_name": f"{app_name.replace('_', ' ').title()} App",
+                        "description": f"Django app for {app_name.replace('_', ' ')}",
+                        "files": [f"{app_dir.relative_to(base_path)}/**/*.py"],
+                        "file_count": len(py_files),
+                        "tags": ["django", "app"],
+                        "tables": [],
+                        "dependencies": [],
+                    }
+                )
 
     if not suggested_packs:
         if output_json:
             print(json.dumps({"suggested_packs": [], "total": 0, "language": detected_language}))
         else:
-            console.print("[yellow]No pack suggestions found. Your codebase may need custom pack definitions.[/yellow]")
+            console.print(
+                "[yellow]No pack suggestions found. Your codebase may need custom pack definitions.[/yellow]"
+            )
             console.print("[dim]Define packs in autodoc.yaml under 'context_packs:'[/dim]")
         return
 
@@ -2624,8 +2834,8 @@ def impact_analysis(files, output_json, pack):
         autodoc impact src/auth/*.py --json
         autodoc impact $(git diff --name-only HEAD~1) --pack authentication
     """
-    from pathlib import Path as PathLib
     import fnmatch
+    from pathlib import Path as PathLib
 
     config = AutodocConfig.load()
 
@@ -2633,7 +2843,9 @@ def impact_analysis(files, output_json, pack):
         if output_json:
             print(json.dumps({"error": "No context packs configured", "affected_packs": []}))
         else:
-            console.print("[yellow]No context packs configured. Run 'autodoc pack auto-generate --save' first.[/yellow]")
+            console.print(
+                "[yellow]No context packs configured. Run 'autodoc pack auto-generate --save' first.[/yellow]"
+            )
         return
 
     # Normalize file paths
@@ -2694,22 +2906,26 @@ def impact_analysis(files, output_json, pack):
                         entity_file = entity.get("file_path", entity.get("file", ""))
                         for mf in matching_files:
                             if mf in entity_file or entity_file.endswith(mf.lstrip("*")):
-                                affected_entities.append({
-                                    "type": entity.get("entity_type", "unknown"),
-                                    "name": entity.get("name", "unknown"),
-                                    "file": entity_file,
-                                    "line": entity.get("start_line", 0),
-                                })
+                                affected_entities.append(
+                                    {
+                                        "type": entity.get("entity_type", "unknown"),
+                                        "name": entity.get("name", "unknown"),
+                                        "file": entity_file,
+                                        "line": entity.get("start_line", 0),
+                                    }
+                                )
                                 break
 
-            affected_packs.append({
-                "name": pack_config.name,
-                "display_name": pack_config.display_name,
-                "security_level": pack_config.security_level,
-                "matching_files": list(set(matching_files)),
-                "affected_entities": affected_entities,
-                "entity_count": len(affected_entities),
-            })
+            affected_packs.append(
+                {
+                    "name": pack_config.name,
+                    "display_name": pack_config.display_name,
+                    "security_level": pack_config.security_level,
+                    "matching_files": list(set(matching_files)),
+                    "affected_entities": affected_entities,
+                    "entity_count": len(affected_entities),
+                }
+            )
 
     # JSON output
     if output_json:
@@ -2736,15 +2952,21 @@ def impact_analysis(files, output_json, pack):
         elif pack_info["security_level"] == "high":
             security_badge = " [yellow]⚠ HIGH[/yellow]"
 
-        console.print(f"[cyan]{pack_info['name']}[/cyan]: {pack_info['display_name']}{security_badge}")
+        console.print(
+            f"[cyan]{pack_info['name']}[/cyan]: {pack_info['display_name']}{security_badge}"
+        )
         console.print(f"  [dim]Files affected: {len(pack_info['matching_files'])}[/dim]")
         console.print(f"  [dim]Entities affected: {pack_info['entity_count']}[/dim]")
 
         if pack_info["affected_entities"][:5]:
             for entity in pack_info["affected_entities"][:5]:
-                console.print(f"    • {entity['type']} [bold]{entity['name']}[/bold] ({entity['file']}:{entity['line']})")
+                console.print(
+                    f"    • {entity['type']} [bold]{entity['name']}[/bold] ({entity['file']}:{entity['line']})"
+                )
             if len(pack_info["affected_entities"]) > 5:
-                console.print(f"    [dim]... and {len(pack_info['affected_entities']) - 5} more[/dim]")
+                console.print(
+                    f"    [dim]... and {len(pack_info['affected_entities']) - 5} more[/dim]"
+                )
         console.print()
 
     # Summary
@@ -2753,7 +2975,9 @@ def impact_analysis(files, output_json, pack):
     if critical_packs:
         console.print(f"[red]⚠ {len(critical_packs)} CRITICAL pack(s) affected![/red]")
 
-    console.print(f"\n[bold]Summary:[/bold] {len(affected_packs)} pack(s), {total_entities} entity/entities affected")
+    console.print(
+        f"\n[bold]Summary:[/bold] {len(affected_packs)} pack(s), {total_entities} entity/entities affected"
+    )
 
 
 @pack.command("status")
@@ -2772,7 +2996,9 @@ def pack_status(output_json):
         if output_json:
             print(json.dumps({"error": "No context packs configured", "packs": []}))
         else:
-            console.print("[yellow]No context packs configured. Run 'autodoc pack auto-generate --save' first.[/yellow]")
+            console.print(
+                "[yellow]No context packs configured. Run 'autodoc pack auto-generate --save' first.[/yellow]"
+            )
         return
 
     pack_statuses = []
@@ -2859,9 +3085,18 @@ def pack_diff(name, output_json):
     pack_file = PathLib(f".autodoc/packs/{name}.json")
     if not pack_file.exists():
         if output_json:
-            print(json.dumps({"error": f"Pack '{name}' not indexed yet", "hint": f"Run: autodoc pack build {name}"}))
+            print(
+                json.dumps(
+                    {
+                        "error": f"Pack '{name}' not indexed yet",
+                        "hint": f"Run: autodoc pack build {name}",
+                    }
+                )
+            )
         else:
-            console.print(f"[yellow]Pack '{name}' not indexed yet. Run: autodoc pack build {name}[/yellow]")
+            console.print(
+                f"[yellow]Pack '{name}' not indexed yet. Run: autodoc pack build {name}[/yellow]"
+            )
         return
 
     with open(pack_file) as f:
@@ -2913,7 +3148,9 @@ def pack_diff(name, output_json):
     # Rich console output
     console.print(f"\n[bold]Diff for {pack_config.display_name}:[/bold]\n")
 
-    console.print(f"[dim]Indexed: {len(indexed_files)} files, {len(indexed_entities)} entities[/dim]")
+    console.print(
+        f"[dim]Indexed: {len(indexed_files)} files, {len(indexed_entities)} entities[/dim]"
+    )
     console.print(f"[dim]Current: {len(current_files)} files[/dim]\n")
 
     if not new_files and not deleted_files:
@@ -2939,7 +3176,9 @@ def pack_diff(name, output_json):
     if new_entity_estimate > 0:
         console.print(f"[cyan]~{new_entity_estimate} new entities estimated in new files[/cyan]\n")
 
-    console.print(f"[yellow]⚠ Run 'autodoc pack build {name} --embeddings' to update index[/yellow]")
+    console.print(
+        f"[yellow]⚠ Run 'autodoc pack build {name} --embeddings' to update index[/yellow]"
+    )
 
 
 @pack.command("deps")
@@ -3000,14 +3239,14 @@ def pack_deps(name, output_json, transitive):
         console.print("[dim]No direct dependencies[/dim]")
 
     if transitive and all_deps:
-        console.print(f"\n[cyan]All dependencies (transitive):[/cyan]")
+        console.print("\n[cyan]All dependencies (transitive):[/cyan]")
         for dep in all_deps:
             dep_pack = config.get_pack(dep)
             display = dep_pack.display_name if dep_pack else dep
             console.print(f"  → {dep} ({display})")
 
     if dependents:
-        console.print(f"\n[cyan]Dependents (packs that depend on this):[/cyan]")
+        console.print("\n[cyan]Dependents (packs that depend on this):[/cyan]")
         for dep in dependents:
             dep_pack = config.get_pack(dep)
             display = dep_pack.display_name if dep_pack else dep
@@ -3048,8 +3287,11 @@ def mcp_server():
     """
     try:
         from .mcp_server import main as mcp_main
+
         console.print("[bold]Starting autodoc MCP server...[/bold]")
-        console.print("[dim]Tools: pack_list, pack_info, pack_query, pack_files, pack_entities,[/dim]")
+        console.print(
+            "[dim]Tools: pack_list, pack_info, pack_query, pack_files, pack_entities,[/dim]"
+        )
         console.print("[dim]        impact_analysis, pack_status, pack_deps, pack_diff[/dim]")
         console.print("[dim]Resources: autodoc://packs, autodoc://packs/{name}[/dim]\n")
         mcp_main()
@@ -3112,7 +3354,7 @@ def init_hooks(warn_only, critical_only, output):
     block_mode = "warn" if warn_only else "block"
     security_filter = "--security critical" if critical_only else ""
 
-    hook_content = f'''#!/bin/bash
+    hook_content = f"""#!/bin/bash
 # Autodoc Impact Analysis Pre-commit Hook
 # Generated by: autodoc init-hooks
 # Mode: {block_mode}
@@ -3154,17 +3396,17 @@ if [ -n "$CRITICAL_PACKS" ]; then
         echo "  • $pack"
     done
     echo ""
-'''
+"""
 
     if warn_only:
-        hook_content += '''    echo "⚠️  Please ensure these changes have been reviewed for security implications."
+        hook_content += """    echo "⚠️  Please ensure these changes have been reviewed for security implications."
     echo ""
 fi
 
 exit 0
-'''
+"""
     else:
-        hook_content += '''    echo "🛑 Commit blocked. Critical packs require explicit confirmation."
+        hook_content += """    echo "🛑 Commit blocked. Critical packs require explicit confirmation."
     echo ""
     echo "To proceed, use one of these options:"
     echo "  1. git commit --no-verify  (bypass hook)"
@@ -3174,7 +3416,7 @@ exit 0
 fi
 
 exit 0
-'''
+"""
 
     # Write hook file
     hook_path.write_text(hook_content)

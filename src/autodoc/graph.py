@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import plotly.graph_objects as go
 from neo4j import Driver, GraphDatabase
-from neo4j.exceptions import ServiceUnavailable, ClientError, DatabaseError
+from neo4j.exceptions import ClientError, DatabaseError, ServiceUnavailable
 from pyvis.network import Network
 
 log = logging.getLogger(__name__)
@@ -132,7 +132,7 @@ class CodeGraphBuilder:
                 try:
                     session.run(constraint)
                 except (ClientError, DatabaseError) as e:
-                    log.info(f"Note: {e}") # Often means constraint/index already exists
+                    log.info(f"Note: {e}")  # Often means constraint/index already exists
 
             # Create indexes
             indexes = [
@@ -146,7 +146,7 @@ class CodeGraphBuilder:
                 try:
                     session.run(index)
                 except (ClientError, DatabaseError) as e:
-                    log.info(f"Note: {e}") # Often means constraint/index already exists
+                    log.info(f"Note: {e}")  # Often means constraint/index already exists
 
     def _create_file_node(self, session, file_path: str):
         """Create a File node"""
@@ -489,9 +489,7 @@ class CodeGraphQuery:
     # Context Pack-aware Graph Methods
     # ==========================================================================
 
-    def find_pack_subgraph(
-        self, pack_file_patterns: List[str]
-    ) -> Dict[str, Any]:
+    def find_pack_subgraph(self, pack_file_patterns: List[str]) -> Dict[str, Any]:
         """Extract a subgraph containing only entities from a context pack.
 
         Args:
@@ -518,8 +516,11 @@ class CodeGraphQuery:
         where_clause = " OR ".join(pattern_conditions)
 
         # Build params
-        params = {f"pattern{i}": p.replace("**", "").replace("*", "").strip("/")
-                  for i, p in enumerate(pack_file_patterns) if p.replace("**", "").replace("*", "").strip("/")}
+        params = {
+            f"pattern{i}": p.replace("**", "").replace("*", "").strip("/")
+            for i, p in enumerate(pack_file_patterns)
+            if p.replace("**", "").replace("*", "").strip("/")
+        }
 
         query = f"""
         MATCH (f:File)
@@ -692,11 +693,13 @@ class CodeGraphQuery:
             result = session.run(query, **params)
             suggestions = []
             for record in result:
-                suggestions.append({
-                    "file": record["file"],
-                    "connections": record["connections"],
-                    "relevance_score": record["relevance_score"],
-                })
+                suggestions.append(
+                    {
+                        "file": record["file"],
+                        "connections": record["connections"],
+                        "relevance_score": record["relevance_score"],
+                    }
+                )
 
             return {
                 "suggested_files": suggestions,

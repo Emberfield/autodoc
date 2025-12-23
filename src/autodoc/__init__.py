@@ -1,5 +1,5 @@
 from autodoc.__about__ import __version__
-from autodoc.sdk import Autodoc, Pack, SearchResult, AnalysisResult, ImpactResult, analyze
+from autodoc.sdk import AnalysisResult, Autodoc, ImpactResult, Pack, SearchResult, analyze
 
 __all__ = [
     "__version__",

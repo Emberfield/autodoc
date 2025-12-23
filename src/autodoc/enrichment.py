@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 import aiohttp
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 log = logging.getLogger(__name__)
 
@@ -401,7 +401,9 @@ Please provide:
         # Build summary of entities for the prompt
         entity_summary = []
         for e in entities[:30]:  # Limit to first 30 for prompt size
-            entity_summary.append(f"- {e.get('entity_type', 'unknown')}: {e.get('name', 'unknown')}")
+            entity_summary.append(
+                f"- {e.get('entity_type', 'unknown')}: {e.get('name', 'unknown')}"
+            )
 
         prompt = f"""Analyze this context pack and provide a comprehensive summary.
 
@@ -409,16 +411,16 @@ Pack: {pack_display_name}
 Current Description: {pack_description}
 
 Files ({len(files)} total):
-{chr(10).join(f'- {f}' for f in files[:15])}
-{'... and ' + str(len(files) - 15) + ' more' if len(files) > 15 else ''}
+{chr(10).join(f"- {f}" for f in files[:15])}
+{"... and " + str(len(files) - 15) + " more" if len(files) > 15 else ""}
 
-Database Tables: {', '.join(tables) if tables else 'None'}
+Database Tables: {", ".join(tables) if tables else "None"}
 
-Dependencies: {', '.join(dependencies) if dependencies else 'None (standalone)'}
+Dependencies: {", ".join(dependencies) if dependencies else "None (standalone)"}
 
 Code Entities ({len(entities)} total):
 {chr(10).join(entity_summary)}
-{'... and ' + str(len(entities) - 30) + ' more' if len(entities) > 30 else ''}
+{"... and " + str(len(entities) - 30) + " more" if len(entities) > 30 else ""}
 
 Provide a comprehensive analysis including:
 1. summary: A 3-5 sentence overview of what this pack does

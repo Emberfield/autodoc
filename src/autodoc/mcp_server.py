@@ -61,16 +61,18 @@ def pack_list(
 
     result = []
     for p in packs:
-        result.append({
-            "name": p.name,
-            "display_name": p.display_name,
-            "description": p.description,
-            "files_count": len(p.files),
-            "tables": p.tables,
-            "dependencies": p.dependencies,
-            "security_level": p.security_level,
-            "tags": p.tags,
-        })
+        result.append(
+            {
+                "name": p.name,
+                "display_name": p.display_name,
+                "description": p.description,
+                "files_count": len(p.files),
+                "tables": p.tables,
+                "dependencies": p.dependencies,
+                "security_level": p.security_level,
+                "tags": p.tags,
+            }
+        )
 
     return json.dumps({"packs": result, "total": len(result)})
 
@@ -94,10 +96,12 @@ def pack_info(
 
     if not pack:
         available = [p.name for p in config.context_packs]
-        return json.dumps({
-            "error": f"Pack '{name}' not found",
-            "available_packs": available,
-        })
+        return json.dumps(
+            {
+                "error": f"Pack '{name}' not found",
+                "available_packs": available,
+            }
+        )
 
     result = {
         "name": pack.name,
@@ -113,8 +117,7 @@ def pack_info(
     if include_dependencies:
         resolved = config.resolve_pack_dependencies(name)
         result["dependency_chain"] = [
-            {"name": p.name, "display_name": p.display_name}
-            for p in resolved if p.name != name
+            {"name": p.name, "display_name": p.display_name} for p in resolved if p.name != name
         ]
 
     # Check if pack has been built
@@ -159,10 +162,12 @@ def pack_query(
 
     pack_file = Path(f".autodoc/packs/{name}.json")
     if not pack_file.exists():
-        return json.dumps({
-            "error": f"Pack '{name}' not built yet",
-            "hint": f"Run: autodoc pack build {name}",
-        })
+        return json.dumps(
+            {
+                "error": f"Pack '{name}' not built yet",
+                "hint": f"Run: autodoc pack build {name}",
+            }
+        )
 
     with open(pack_file) as f:
         pack_data = json.load(f)
@@ -180,6 +185,7 @@ def pack_query(
         if chromadb_dir.exists():
             try:
                 from .chromadb_embedder import ChromaDBEmbedder
+
                 collection_name = f"autodoc_pack_{name}"
 
                 embedder = ChromaDBEmbedder(
@@ -194,16 +200,18 @@ def pack_query(
 
                 search_type = "semantic"
                 for r in search_results:
-                    results.append({
-                        "type": r["entity"]["type"],
-                        "name": r["entity"]["name"],
-                        "file": r["entity"]["file_path"],
-                        "line": r["entity"]["line_number"],
-                        "score": round(r["similarity"], 3),
-                        "preview": r.get("document", "")[:200],
-                    })
+                    results.append(
+                        {
+                            "type": r["entity"]["type"],
+                            "name": r["entity"]["name"],
+                            "file": r["entity"]["file_path"],
+                            "line": r["entity"]["line_number"],
+                            "score": round(r["similarity"], 3),
+                            "preview": r.get("document", "")[:200],
+                        }
+                    )
 
-            except Exception as e:
+            except Exception:
                 # Fall back to keyword search
                 search_type = "keyword"
                 results = []
@@ -238,22 +246,26 @@ def pack_query(
         scored.sort(key=lambda x: x[1], reverse=True)
 
         for entity, score in scored[:limit]:
-            results.append({
-                "type": entity.get("entity_type", "unknown"),
-                "name": entity.get("name", "unknown"),
-                "file": entity.get("file", ""),
-                "line": entity.get("start_line", 0),
-                "score": round(score / 20.0, 2),
-                "preview": entity.get("docstring", "")[:200] if entity.get("docstring") else "",
-            })
+            results.append(
+                {
+                    "type": entity.get("entity_type", "unknown"),
+                    "name": entity.get("name", "unknown"),
+                    "file": entity.get("file", ""),
+                    "line": entity.get("start_line", 0),
+                    "score": round(score / 20.0, 2),
+                    "preview": entity.get("docstring", "")[:200] if entity.get("docstring") else "",
+                }
+            )
 
-    return json.dumps({
-        "query": query,
-        "pack": name,
-        "search_type": search_type,
-        "results": results,
-        "total": len(results),
-    })
+    return json.dumps(
+        {
+            "query": query,
+            "pack": name,
+            "search_type": search_type,
+            "results": results,
+            "total": len(results),
+        }
+    )
 
 
 @mcp.tool
@@ -277,20 +289,24 @@ def pack_files(name: str) -> str:
     if pack_file.exists():
         with open(pack_file) as f:
             pack_data = json.load(f)
-            return json.dumps({
-                "pack": name,
-                "patterns": pack.files,
-                "resolved_files": pack_data.get("files", []),
-                "file_count": len(pack_data.get("files", [])),
-            })
+            return json.dumps(
+                {
+                    "pack": name,
+                    "patterns": pack.files,
+                    "resolved_files": pack_data.get("files", []),
+                    "file_count": len(pack_data.get("files", [])),
+                }
+            )
 
     # Return just the patterns if not built
-    return json.dumps({
-        "pack": name,
-        "patterns": pack.files,
-        "resolved_files": [],
-        "hint": f"Run 'autodoc pack build {name}' to resolve file patterns",
-    })
+    return json.dumps(
+        {
+            "pack": name,
+            "patterns": pack.files,
+            "resolved_files": [],
+            "hint": f"Run 'autodoc pack build {name}' to resolve file patterns",
+        }
+    )
 
 
 @mcp.tool
@@ -311,10 +327,12 @@ def pack_entities(
     """
     pack_file = Path(f".autodoc/packs/{name}.json")
     if not pack_file.exists():
-        return json.dumps({
-            "error": f"Pack '{name}' not built",
-            "hint": f"Run: autodoc pack build {name}",
-        })
+        return json.dumps(
+            {
+                "error": f"Pack '{name}' not built",
+                "hint": f"Run: autodoc pack build {name}",
+            }
+        )
 
     with open(pack_file) as f:
         pack_data = json.load(f)
@@ -328,21 +346,25 @@ def pack_entities(
 
     result = []
     for e in entities:
-        result.append({
-            "type": e.get("entity_type", "unknown"),
-            "name": e.get("name", "unknown"),
-            "file": e.get("file", ""),
-            "line": e.get("start_line", 0),
-            "docstring": e.get("docstring", "")[:200] if e.get("docstring") else None,
-        })
+        result.append(
+            {
+                "type": e.get("entity_type", "unknown"),
+                "name": e.get("name", "unknown"),
+                "file": e.get("file", ""),
+                "line": e.get("start_line", 0),
+                "docstring": e.get("docstring", "")[:200] if e.get("docstring") else None,
+            }
+        )
 
-    return json.dumps({
-        "pack": name,
-        "entity_type_filter": entity_type,
-        "entities": result,
-        "total": len(result),
-        "limited": len(pack_data.get("entities", [])) > limit,
-    })
+    return json.dumps(
+        {
+            "pack": name,
+            "entity_type_filter": entity_type,
+            "entities": result,
+            "total": len(result),
+            "limited": len(pack_data.get("entities", [])) > limit,
+        }
+    )
 
 
 @mcp.tool
@@ -422,33 +444,41 @@ def impact_analysis(
                         entity_file = entity.get("file_path", entity.get("file", ""))
                         for mf in matching_files:
                             if mf in entity_file or entity_file.endswith(mf.lstrip("*")):
-                                affected_entities.append({
-                                    "type": entity.get("entity_type", "unknown"),
-                                    "name": entity.get("name", "unknown"),
-                                    "file": entity_file,
-                                    "line": entity.get("start_line", 0),
-                                })
+                                affected_entities.append(
+                                    {
+                                        "type": entity.get("entity_type", "unknown"),
+                                        "name": entity.get("name", "unknown"),
+                                        "file": entity_file,
+                                        "line": entity.get("start_line", 0),
+                                    }
+                                )
                                 break
 
-            affected_packs.append({
-                "name": pack_config.name,
-                "display_name": pack_config.display_name,
-                "security_level": pack_config.security_level,
-                "matching_files": list(set(matching_files)),
-                "affected_entities": affected_entities,
-                "entity_count": len(affected_entities),
-            })
+            affected_packs.append(
+                {
+                    "name": pack_config.name,
+                    "display_name": pack_config.display_name,
+                    "security_level": pack_config.security_level,
+                    "matching_files": list(set(matching_files)),
+                    "affected_entities": affected_entities,
+                    "entity_count": len(affected_entities),
+                }
+            )
 
     # Build response with security warnings
     critical_packs = [p for p in affected_packs if p["security_level"] == "critical"]
 
-    return json.dumps({
-        "changed_files": changed_files,
-        "affected_packs": affected_packs,
-        "total_packs_affected": len(affected_packs),
-        "total_entities_affected": sum(p["entity_count"] for p in affected_packs),
-        "security_warning": f"{len(critical_packs)} CRITICAL pack(s) affected" if critical_packs else None,
-    })
+    return json.dumps(
+        {
+            "changed_files": changed_files,
+            "affected_packs": affected_packs,
+            "total_packs_affected": len(affected_packs),
+            "total_entities_affected": sum(p["entity_count"] for p in affected_packs),
+            "security_warning": f"{len(critical_packs)} CRITICAL pack(s) affected"
+            if critical_packs
+            else None,
+        }
+    )
 
 
 @mcp.tool
@@ -492,13 +522,15 @@ def pack_status() -> str:
 
         pack_statuses.append(status)
 
-    return json.dumps({
-        "packs": pack_statuses,
-        "total": len(pack_statuses),
-        "indexed": sum(1 for p in pack_statuses if p["indexed"]),
-        "with_embeddings": sum(1 for p in pack_statuses if p["has_embeddings"]),
-        "with_summaries": sum(1 for p in pack_statuses if p["has_summary"]),
-    })
+    return json.dumps(
+        {
+            "packs": pack_statuses,
+            "total": len(pack_statuses),
+            "indexed": sum(1 for p in pack_statuses if p["indexed"]),
+            "with_embeddings": sum(1 for p in pack_statuses if p["has_embeddings"]),
+            "with_summaries": sum(1 for p in pack_statuses if p["has_summary"]),
+        }
+    )
 
 
 @mcp.tool
@@ -533,12 +565,14 @@ def pack_deps(
         if name in p.dependencies:
             dependents.append(p.name)
 
-    return json.dumps({
-        "pack": name,
-        "direct_dependencies": direct_deps,
-        "transitive_dependencies": all_deps if include_transitive else None,
-        "dependents": dependents,
-    })
+    return json.dumps(
+        {
+            "pack": name,
+            "direct_dependencies": direct_deps,
+            "transitive_dependencies": all_deps if include_transitive else None,
+            "dependents": dependents,
+        }
+    )
 
 
 @mcp.tool
@@ -554,7 +588,6 @@ def pack_diff(name: str) -> str:
     Returns:
         JSON with new, modified, and deleted files plus entity changes
     """
-    import hashlib
 
     config = get_config()
     pack_config = config.get_pack(name)
@@ -564,16 +597,19 @@ def pack_diff(name: str) -> str:
 
     pack_file = Path(f".autodoc/packs/{name}.json")
     if not pack_file.exists():
-        return json.dumps({
-            "error": f"Pack '{name}' not indexed yet",
-            "hint": f"Run: autodoc pack build {name}",
-        })
+        return json.dumps(
+            {
+                "error": f"Pack '{name}' not indexed yet",
+                "hint": f"Run: autodoc pack build {name}",
+            }
+        )
 
     with open(pack_file) as f:
         pack_data = json.load(f)
 
     indexed_files = set(pack_data.get("files", []))
-    indexed_entities = {
+    # Entity index reserved for future per-entity diff tracking
+    _indexed_entities = {
         f"{e.get('file_path', e.get('file', ''))}:{e.get('name', '')}": e
         for e in pack_data.get("entities", [])
     }
@@ -612,19 +648,21 @@ def pack_diff(name: str) -> str:
         except Exception:
             pass
 
-    return json.dumps({
-        "pack": name,
-        "indexed_at": pack_data.get("indexed_at"),
-        "current_files": len(current_files),
-        "indexed_files": len(indexed_files),
-        "new_files": new_files[:20],  # Limit to first 20
-        "new_files_count": len(new_files),
-        "deleted_files": deleted_files[:20],
-        "deleted_files_count": len(deleted_files),
-        "modified_files_count": len(modified_files),
-        "estimated_new_entities": new_entity_estimate,
-        "needs_reindex": len(new_files) > 0 or len(deleted_files) > 0,
-    })
+    return json.dumps(
+        {
+            "pack": name,
+            "indexed_at": pack_data.get("indexed_at"),
+            "current_files": len(current_files),
+            "indexed_files": len(indexed_files),
+            "new_files": new_files[:20],  # Limit to first 20
+            "new_files_count": len(new_files),
+            "deleted_files": deleted_files[:20],
+            "deleted_files_count": len(deleted_files),
+            "modified_files_count": len(modified_files),
+            "estimated_new_entities": new_entity_estimate,
+            "needs_reindex": len(new_files) > 0 or len(deleted_files) > 0,
+        }
+    )
 
 
 @mcp.resource("autodoc://packs")
@@ -633,11 +671,13 @@ def list_all_packs() -> str:
     config = get_config()
     packs = []
     for p in config.context_packs:
-        packs.append({
-            "name": p.name,
-            "display_name": p.display_name,
-            "description": p.description,
-        })
+        packs.append(
+            {
+                "name": p.name,
+                "display_name": p.display_name,
+                "description": p.description,
+            }
+        )
     return json.dumps(packs)
 
 

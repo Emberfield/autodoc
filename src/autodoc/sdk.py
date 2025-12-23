@@ -26,14 +26,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from .config import AutodocConfig, ContextPackConfig
 from .autodoc import SimpleAutodoc
 from .chromadb_embedder import ChromaDBEmbedder
+from .config import AutodocConfig, ContextPackConfig
 
 
 @dataclass
 class SearchResult:
     """A single search result."""
+
     name: str
     type: str
     file_path: str
@@ -47,6 +48,7 @@ class SearchResult:
 @dataclass
 class AnalysisResult:
     """Result of codebase analysis."""
+
     files_analyzed: int
     total_entities: int
     functions: int
@@ -59,6 +61,7 @@ class AnalysisResult:
 @dataclass
 class ImpactResult:
     """Result of impact analysis."""
+
     affected_packs: List[str]
     critical_packs: List[str]
     files_affected: List[str]
@@ -68,6 +71,7 @@ class ImpactResult:
 @dataclass
 class Pack:
     """A context pack representing a logical grouping of code."""
+
     name: str
     display_name: str
     description: str
@@ -98,6 +102,7 @@ def _run_async(coro):
         loop = asyncio.get_running_loop()
         # We're in an async context, can't use run_until_complete
         import nest_asyncio
+
         nest_asyncio.apply()
         return loop.run_until_complete(coro)
     except RuntimeError:
@@ -260,6 +265,7 @@ class Autodoc:
 
         # Fallback: filter global search by pack files
         import fnmatch
+
         all_results = self.search(query, limit=limit * 3)
         pack_results = []
         for result in all_results:
@@ -348,8 +354,7 @@ class Autodoc:
                     )
                 elif pack_config.security_level == "high":
                     security_implications.append(
-                        f"HIGH: Changes affect {pack_config.display_name} "
-                        f"(security level: high)"
+                        f"HIGH: Changes affect {pack_config.display_name} (security level: high)"
                     )
 
         return ImpactResult(

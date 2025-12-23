@@ -9,7 +9,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Dict, Optional, Set
 
-from aiohttp import web, WSMsgType
+from aiohttp import WSMsgType, web
 from aiohttp_cors import ResourceOptions
 from aiohttp_cors import setup as setup_cors
 
@@ -40,8 +40,8 @@ class APIServer:
         self.graph_builder: Optional[CodeGraphBuilder] = None
         self.graph_query: Optional[CodeGraphQuery] = None
         self.graph_config = graph_config or GraphConfig.from_env()
-        self.websockets: Set[web.WebSocketResponse] = set() # Store active WebSocket connections
-        self.ot_interface: OTWebSocketInterface = OTWebSocketInterface() # OT Engine interface
+        self.websockets: Set[web.WebSocketResponse] = set()  # Store active WebSocket connections
+        self.ot_interface: OTWebSocketInterface = OTWebSocketInterface()  # OT Engine interface
 
         # Setup CORS
         self._setup_cors()
@@ -571,10 +571,7 @@ class APIServer:
         index_path = STATIC_DIR / "index.html"
         if index_path.exists():
             return web.FileResponse(index_path)
-        return web.Response(
-            text="Config UI not found. Static files missing.",
-            status=404
-        )
+        return web.Response(text="Config UI not found. Static files missing.", status=404)
 
     async def get_config(self, request: web.Request) -> web.Response:
         """Get current configuration."""
@@ -592,9 +589,7 @@ class APIServer:
             return web.json_response(config_dict)
         except Exception as e:
             logger.error(f"Error getting config: {e}")
-            return web.json_response(
-                {"error": f"Failed to get config: {str(e)}"}, status=500
-            )
+            return web.json_response({"error": f"Failed to get config: {str(e)}"}, status=500)
 
     async def update_config(self, request: web.Request) -> web.Response:
         """Update and save configuration."""
@@ -613,22 +608,23 @@ class APIServer:
                 config = AutodocConfig.model_validate(data)
             except Exception as validation_error:
                 return web.json_response(
-                    {"error": f"Validation failed: {str(validation_error)}"},
-                    status=400
+                    {"error": f"Validation failed: {str(validation_error)}"}, status=400
                 )
 
             # Save the config
             config.save()
 
-            return web.json_response({
-                "message": "Configuration saved successfully",
-                "config": config.model_dump(exclude_none=True, exclude={"llm": {"api_key"}, "graph": {"neo4j_password"}})
-            })
+            return web.json_response(
+                {
+                    "message": "Configuration saved successfully",
+                    "config": config.model_dump(
+                        exclude_none=True, exclude={"llm": {"api_key"}, "graph": {"neo4j_password"}}
+                    ),
+                }
+            )
         except Exception as e:
             logger.error(f"Error updating config: {e}")
-            return web.json_response(
-                {"error": f"Failed to update config: {str(e)}"}, status=500
-            )
+            return web.json_response({"error": f"Failed to update config: {str(e)}"}, status=500)
 
     async def validate_config(self, request: web.Request) -> web.Response:
         """Validate configuration without saving."""
@@ -637,21 +633,13 @@ class APIServer:
 
             # Try to validate
             try:
-                config = AutodocConfig.model_validate(data)
-                return web.json_response({
-                    "valid": True,
-                    "message": "Configuration is valid"
-                })
+                AutodocConfig.model_validate(data)
+                return web.json_response({"valid": True, "message": "Configuration is valid"})
             except Exception as validation_error:
-                return web.json_response({
-                    "valid": False,
-                    "error": str(validation_error)
-                })
+                return web.json_response({"valid": False, "error": str(validation_error)})
         except Exception as e:
             logger.error(f"Error validating config: {e}")
-            return web.json_response(
-                {"error": f"Failed to validate config: {str(e)}"}, status=500
-            )
+            return web.json_response({"error": f"Failed to validate config: {str(e)}"}, status=500)
 
     MAX_WEBSOCKET_CONNECTIONS = 100
 
@@ -667,7 +655,9 @@ class APIServer:
 
         self.websockets.add(ws)
         client_info = request.remote or "unknown"
-        logger.info(f"WebSocket connection established from {client_info}. Total: {len(self.websockets)}")
+        logger.info(
+            f"WebSocket connection established from {client_info}. Total: {len(self.websockets)}"
+        )
 
         try:
             async for msg in ws:
@@ -684,7 +674,9 @@ class APIServer:
 
                     if operation_data:
                         try:
-                            result = await self.ot_interface.handle_operation(document_id, operation_data)
+                            result = await self.ot_interface.handle_operation(
+                                document_id, operation_data
+                            )
                             await self.broadcast(result, sender_ws=ws)
                         except ValueError as ve:
                             # Input validation errors from OT engine
@@ -704,9 +696,13 @@ class APIServer:
             logger.info(f"WebSocket closed from {client_info}. Total: {len(self.websockets)}")
         return ws
 
-    async def broadcast(self, message: Dict[str, Any], sender_ws: Optional[web.WebSocketResponse] = None):
+    async def broadcast(
+        self, message: Dict[str, Any], sender_ws: Optional[web.WebSocketResponse] = None
+    ):
         """Broadcasts a message to all connected WebSocket clients, optionally skipping the sender."""
-        for ws in list(self.websockets): # Iterate over a copy to allow modification during iteration
+        for ws in list(
+            self.websockets
+        ):  # Iterate over a copy to allow modification during iteration
             if ws != sender_ws:
                 try:
                     await self.send_json(ws, message)

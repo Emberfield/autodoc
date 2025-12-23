@@ -6,7 +6,7 @@ Configuration management for autodoc.
 import logging
 import os
 from pathlib import Path
-from typing import Literal, Optional, List
+from typing import List, Literal, Optional
 
 import yaml
 from pydantic import BaseModel, Field, field_validator
@@ -17,9 +17,7 @@ log = logging.getLogger(__name__)
 class LLMConfig(BaseModel):
     """Configuration for LLM providers."""
 
-    provider: Literal["openai", "anthropic", "ollama"] = Field(
-        "openai", description="LLM provider"
-    )
+    provider: Literal["openai", "anthropic", "ollama"] = Field("openai", description="LLM provider")
     model: str = Field("gpt-4o-mini", description="Model to use for enrichment")
     api_key: Optional[str] = Field(None, description="API key for the LLM provider")
     base_url: Optional[str] = Field(None, description="Base URL for custom LLM endpoints")
@@ -54,8 +52,7 @@ class EnrichmentConfig(BaseModel):
     analyze_complexity: bool = Field(True, description="Analyze code complexity during enrichment")
     detect_patterns: bool = Field(True, description="Detect design patterns during enrichment")
     languages: List[str] = Field(
-        default_factory=lambda: ["python", "typescript"],
-        description="List of languages to enrich"
+        default_factory=lambda: ["python", "typescript"], description="List of languages to enrich"
     )
 
 
@@ -70,13 +67,14 @@ class CostControlConfig(BaseModel):
     )
     summary_model: Optional[str] = Field(
         None,
-        description="Cheaper model to use for pack summaries (e.g., 'claude-3-haiku-20240307', 'gpt-4o-mini'). If None, uses llm.model"
+        description="Cheaper model to use for pack summaries (e.g., 'claude-3-haiku-20240307', 'gpt-4o-mini'). If None, uses llm.model",
     )
     cache_summaries: bool = Field(
         True, description="Cache pack summaries to avoid regenerating unchanged content"
     )
     dry_run_by_default: bool = Field(
-        False, description="Run in dry-run mode by default (show what would happen without API calls)"
+        False,
+        description="Run in dry-run mode by default (show what would happen without API calls)",
     )
 
 
@@ -85,10 +83,14 @@ class EmbeddingsConfig(BaseModel):
 
     provider: Literal["openai", "chromadb"] = Field("openai", description="Embeddings provider")
     model: str = Field("text-embedding-3-small", description="OpenAI embedding model")
-    chromadb_model: str = Field("all-MiniLM-L6-v2", description="ChromaDB/sentence-transformers model")
+    chromadb_model: str = Field(
+        "all-MiniLM-L6-v2", description="ChromaDB/sentence-transformers model"
+    )
     dimensions: int = Field(1536, gt=0, description="Embedding dimensions")
     batch_size: int = Field(100, gt=0, le=1000, description="Batch size for embedding generation")
-    persist_directory: str = Field(".autodoc_chromadb", description="Directory for ChromaDB persistence")
+    persist_directory: str = Field(
+        ".autodoc_chromadb", description="Directory for ChromaDB persistence"
+    )
 
 
 class GraphConfig(BaseModel):
@@ -96,15 +98,14 @@ class GraphConfig(BaseModel):
 
     neo4j_uri: str = Field(
         default_factory=lambda: os.getenv("NEO4J_URI", "bolt://localhost:7687"),
-        description="Neo4j connection URI"
+        description="Neo4j connection URI",
     )
     neo4j_username: str = Field(
-        default_factory=lambda: os.getenv("NEO4J_USERNAME", "neo4j"),
-        description="Neo4j username"
+        default_factory=lambda: os.getenv("NEO4J_USERNAME", "neo4j"), description="Neo4j username"
     )
     neo4j_password: Optional[str] = Field(
         default_factory=lambda: os.getenv("NEO4J_PASSWORD"),
-        description="Neo4j password (from NEO4J_PASSWORD env var)"
+        description="Neo4j password (from NEO4J_PASSWORD env var)",
     )
     enrich_nodes: bool = Field(True, description="Enrich graph nodes with LLM analysis")
 
@@ -113,7 +114,9 @@ class GraphConfig(BaseModel):
     def validate_uri(cls, v: str) -> str:
         """Validate Neo4j URI format."""
         if not v.startswith(("bolt://", "neo4j://", "neo4j+s://", "bolt+s://")):
-            raise ValueError("neo4j_uri must start with bolt://, neo4j://, neo4j+s://, or bolt+s://")
+            raise ValueError(
+                "neo4j_uri must start with bolt://, neo4j://, neo4j+s://, or bolt+s://"
+            )
         return v
 
 
@@ -122,7 +125,7 @@ class AnalysisConfig(BaseModel):
 
     ignore_patterns: List[str] = Field(
         default_factory=lambda: ["__pycache__", "*.pyc", ".git", "node_modules"],
-        description="Glob patterns for files/directories to ignore"
+        description="Glob patterns for files/directories to ignore",
     )
     max_file_size: int = Field(
         1048576, gt=0, description="Maximum file size in bytes (default 1MB)"
@@ -146,26 +149,25 @@ class ContextPackConfig(BaseModel):
     """Configuration for a context pack - a logical grouping of related code entities."""
 
     name: str = Field(..., description="Unique identifier for the pack (e.g., 'authentication')")
-    display_name: str = Field(..., description="Human-readable name (e.g., 'Authentication System')")
+    display_name: str = Field(
+        ..., description="Human-readable name (e.g., 'Authentication System')"
+    )
     description: str = Field(..., description="Description of what this pack covers")
     files: List[str] = Field(
         default_factory=list,
-        description="Glob patterns for files in this pack (e.g., ['src/auth/**/*.py'])"
+        description="Glob patterns for files in this pack (e.g., ['src/auth/**/*.py'])",
     )
     tables: List[str] = Field(
-        default_factory=list,
-        description="Database tables related to this pack (for documentation)"
+        default_factory=list, description="Database tables related to this pack (for documentation)"
     )
     dependencies: List[str] = Field(
-        default_factory=list,
-        description="Names of other packs this pack depends on"
+        default_factory=list, description="Names of other packs this pack depends on"
     )
     security_level: Optional[Literal["critical", "high", "normal"]] = Field(
         None, description="Security classification for this pack"
     )
     tags: List[str] = Field(
-        default_factory=list,
-        description="Tags for categorization (e.g., ['security', 'core'])"
+        default_factory=list, description="Tags for categorization (e.g., ['security', 'core'])"
     )
 
     @field_validator("name")
@@ -173,7 +175,9 @@ class ContextPackConfig(BaseModel):
     def validate_name(cls, v: str) -> str:
         """Validate pack name is a valid identifier."""
         if not v.replace("_", "").replace("-", "").isalnum():
-            raise ValueError("Pack name must contain only alphanumeric characters, underscores, and hyphens")
+            raise ValueError(
+                "Pack name must contain only alphanumeric characters, underscores, and hyphens"
+            )
         return v.lower()
 
 
@@ -186,7 +190,7 @@ class DatabaseConfig(BaseModel):
             "alembic/versions/*.py",
             "migrations/*.sql",
         ],
-        description="Paths to database migration files"
+        description="Paths to database migration files",
     )
     model_paths: List[str] = Field(
         default_factory=lambda: [
@@ -194,23 +198,29 @@ class DatabaseConfig(BaseModel):
             "src/models/*.py",
             "**/models.py",
         ],
-        description="Paths to ORM model files"
+        description="Paths to ORM model files",
     )
-    analyze_schema: bool = Field(
-        False, description="Whether to parse and analyze database schema"
-    )
+    analyze_schema: bool = Field(False, description="Whether to parse and analyze database schema")
 
 
 class AutodocConfig(BaseModel):
     """Main configuration for autodoc."""
 
     llm: LLMConfig = Field(default_factory=LLMConfig, description="LLM settings")
-    enrichment: EnrichmentConfig = Field(default_factory=EnrichmentConfig, description="Enrichment settings")
-    embeddings: EmbeddingsConfig = Field(default_factory=EmbeddingsConfig, description="Embedding settings")
+    enrichment: EnrichmentConfig = Field(
+        default_factory=EnrichmentConfig, description="Enrichment settings"
+    )
+    embeddings: EmbeddingsConfig = Field(
+        default_factory=EmbeddingsConfig, description="Embedding settings"
+    )
     graph: GraphConfig = Field(default_factory=GraphConfig, description="Graph database settings")
-    analysis: AnalysisConfig = Field(default_factory=AnalysisConfig, description="Analysis settings")
+    analysis: AnalysisConfig = Field(
+        default_factory=AnalysisConfig, description="Analysis settings"
+    )
     output: OutputConfig = Field(default_factory=OutputConfig, description="Output settings")
-    database: DatabaseConfig = Field(default_factory=DatabaseConfig, description="Database schema settings")
+    database: DatabaseConfig = Field(
+        default_factory=DatabaseConfig, description="Database schema settings"
+    )
     cost_control: CostControlConfig = Field(
         default_factory=CostControlConfig, description="Cost control settings for LLM API usage"
     )
@@ -300,7 +310,9 @@ class AutodocConfig(BaseModel):
 
         # Handle API key and base_url separately if they are set
         if self.llm.api_key:
-            config_data.setdefault("llm", {})["api_key"] = "# Set via environment variable or add here"
+            config_data.setdefault("llm", {})["api_key"] = (
+                "# Set via environment variable or add here"
+            )
         if self.llm.base_url:
             config_data.setdefault("llm", {})["base_url"] = self.llm.base_url
 

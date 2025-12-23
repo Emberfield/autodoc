@@ -1,7 +1,8 @@
-'''
+"""
 Python wrapper for the Rust core analyzer.
 Falls back to Python implementation if Rust core is not available.
-'''
+"""
+
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,7 +27,7 @@ from .analyzer import SimpleASTAnalyzer
 
 @dataclass
 class RustCodeEntity:
-    '''Wrapper for Rust CodeEntity to match Python interface.'''
+    """Wrapper for Rust CodeEntity to match Python interface."""
 
     type: str
     name: str
@@ -54,7 +55,7 @@ class RustCodeEntity:
 
     @classmethod
     def from_rust_entity(cls, rust_entity) -> "RustCodeEntity":
-        '''Convert Rust entity to Python dataclass.'''
+        """Convert Rust entity to Python dataclass."""
         return cls(
             type=rust_entity.entity_type,
             name=rust_entity.name,
@@ -69,7 +70,7 @@ class RustCodeEntity:
         )
 
     def to_python_entity(self) -> PythonCodeEntity:
-        '''Convert to Python CodeEntity for compatibility.'''
+        """Convert to Python CodeEntity for compatibility."""
         return PythonCodeEntity(
             type=self.type,
             name=self.name,
@@ -86,10 +87,10 @@ class RustCodeEntity:
 
 
 class HybridAnalyzer:
-    '''
+    """
     Hybrid analyzer that uses Rust core when available,
     falls back to Python implementation otherwise.
-    '''
+    """
 
     def __init__(self, use_rust: bool = True, exclude_patterns: Optional[List[str]] = None):
         self.use_rust = use_rust and RUST_CORE_AVAILABLE
@@ -103,7 +104,7 @@ class HybridAnalyzer:
             log.info("Using Python analyzer")
 
     def analyze_file(self, file_path: Path) -> List[PythonCodeEntity]:
-        '''Analyze a single file.'''
+        """Analyze a single file."""
         if self.use_rust:
             try:
                 rust_entities = self.rust_analyzer.analyze_file(str(file_path))
@@ -135,7 +136,7 @@ class HybridAnalyzer:
         return self.python_analyzer.analyze_directory(path, exclude_patterns)
 
     def benchmark_comparison(self, path: Path) -> Dict[str, Any]:
-        '''Compare performance between Rust and Python implementations.'''
+        """Compare performance between Rust and Python implementations."""
         import time
 
         results = {}
@@ -171,7 +172,9 @@ class HybridAnalyzer:
         return results
 
 
-def analyze_with_rust(path: Path, exclude_patterns: Optional[List[str]] = None) -> List[PythonCodeEntity]:
+def analyze_with_rust(
+    path: Path, exclude_patterns: Optional[List[str]] = None
+) -> List[PythonCodeEntity]:
     """Direct function to analyze with Rust core."""
     if not RUST_CORE_AVAILABLE:
         raise ImportError("Rust core is not available. Run 'make build-rust' to compile it.")
@@ -183,7 +186,7 @@ def analyze_with_rust(path: Path, exclude_patterns: Optional[List[str]] = None) 
 
 # Performance testing utility
 def run_performance_test(test_dir: Path = None):
-    '''Run performance comparison between Python and Rust implementations.'''
+    """Run performance comparison between Python and Rust implementations."""
     if test_dir is None:
         test_dir = Path.cwd()
 

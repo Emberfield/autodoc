@@ -94,3 +94,9 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "F", "I"]
 ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# Allow imports after logging setup
+"src/autodoc/enrichment.py" = ["E402"]
+"src/autodoc/graph.py" = ["E402"]
+"src/autodoc/rust_analyzer.py" = ["E402"]
