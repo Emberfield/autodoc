@@ -3255,16 +3255,247 @@ def pack_deps(name, output_json, transitive):
         console.print("\n[dim]No packs depend on this one[/dim]")
 
 
+@pack.command("export-skill")
+@click.argument("name", required=False)
+@click.option("--all", "export_all", is_flag=True, help="Export all packs as skills")
+@click.option("--output", "-o", type=click.Path(), help="Custom output directory")
+@click.option(
+    "--format",
+    "skill_format",
+    type=click.Choice(["claude", "codex"]),
+    default="claude",
+    help="Output format: claude (.claude/skills/) or codex (~/.codex/skills/)",
+)
+@click.option(
+    "--include-reference",
+    "-r",
+    is_flag=True,
+    help="Generate ENTITIES.md and ARCHITECTURE.md reference files",
+)
+@click.option(
+    "--generate-summary",
+    "-s",
+    is_flag=True,
+    help="Generate LLM summary if missing (requires OpenAI API key)",
+)
+@click.option("--json", "output_json", is_flag=True, help="Output result as JSON")
+def pack_export_skill(name, export_all, output, skill_format, include_reference, generate_summary, output_json):
+    """Export context pack(s) as SKILL.md for AI assistants.
+
+    Generates SKILL.md files that are discoverable by Claude Code,
+    OpenAI Codex, and other AI assistants.
+
+    Examples:
+
+        autodoc pack export-skill authentication
+
+        autodoc pack export-skill --all --format codex
+
+        autodoc pack export-skill api --include-reference
+    """
+    from autodoc.skill_generator import SkillConfig, SkillFormat, SkillGenerator
+
+    if not name and not export_all:
+        if output_json:
+            print(json.dumps({"error": "Either provide a pack name or use --all"}))
+        else:
+            console.print("[red]Error: Either provide a pack name or use --all[/red]")
+        return
+
+    config = AutodocConfig.load()
+
+    if not config.context_packs:
+        if output_json:
+            print(json.dumps({"error": "No context packs defined"}))
+        else:
+            console.print("[yellow]No context packs defined in autodoc.yaml[/yellow]")
+        return
+
+    # Determine packs to export
+    packs_to_export = []
+    if export_all:
+        packs_to_export = [p.name for p in config.context_packs]
+    else:
+        pack_config = config.get_pack(name)
+        if not pack_config:
+            if output_json:
+                print(json.dumps({"error": f"Pack '{name}' not found"}))
+            else:
+                console.print(f"[red]Pack '{name}' not found.[/red]")
+            return
+        packs_to_export = [name]
+
+    # Configure skill generator
+    skill_config = SkillConfig(
+        format=SkillFormat.CLAUDE if skill_format == "claude" else SkillFormat.CODEX,
+        include_reference=include_reference,
+        output_dir=Path(output) if output else None,
+    )
+    generator = SkillGenerator(skill_config)
+
+    project_root = Path.cwd()
+    results = []
+    errors = []
+
+    for pack_name in packs_to_export:
+        # Load pack data from build output
+        pack_data_path = project_root / ".autodoc" / "packs" / f"{pack_name}.json"
+
+        if not pack_data_path.exists():
+            error_msg = f"Pack '{pack_name}' not built. Run 'autodoc pack build {pack_name}' first."
+            errors.append({"pack": pack_name, "error": error_msg})
+            if not output_json:
+                console.print(f"[yellow]⚠ {error_msg}[/yellow]")
+            continue
+
+        try:
+            pack_data = json.loads(pack_data_path.read_text())
+        except json.JSONDecodeError as e:
+            error_msg = f"Failed to parse pack data: {e}"
+            errors.append({"pack": pack_name, "error": error_msg})
+            if not output_json:
+                console.print(f"[red]Error reading {pack_name}: {error_msg}[/red]")
+            continue
+
+        # Check for LLM summary
+        if not pack_data.get("llm_summary") and not generate_summary:
+            if not output_json:
+                console.print(
+                    f"[yellow]⚠ Pack '{pack_name}' has no LLM summary. "
+                    f"Skills will have limited content. Use --generate-summary or "
+                    f"run 'autodoc pack build {pack_name} --summarize' first.[/yellow]"
+                )
+
+        # Generate LLM summary if requested and missing
+        if generate_summary and not pack_data.get("llm_summary"):
+            if not output_json:
+                console.print(f"[cyan]Generating LLM summary for {pack_name}...[/cyan]")
+            try:
+                # Import enrichment module for summary generation
+                from autodoc.enrichment import LLMEnricher
+
+                enricher = LLMEnricher()
+                entities = pack_data.get("entities", [])
+
+                # Build context for summary
+                entity_summaries = []
+                for e in entities[:20]:  # Limit for token count
+                    entity_summaries.append(
+                        f"- {e.get('type', 'unknown')} `{e.get('name', '')}`: {e.get('docstring', '')[:100]}"
+                    )
+
+                summary_prompt = f"""Analyze this code pack and provide a structured summary:
+
+Pack: {pack_data.get('display_name', pack_name)}
+Description: {pack_data.get('description', '')}
+Files: {', '.join(pack_data.get('files', [])[:10])}
+
+Key entities:
+{chr(10).join(entity_summaries)}
+
+Provide:
+1. architecture: Brief overview of how this code works
+2. key_components: List of 3-5 most important functions/classes with their roles
+3. usage_patterns: How to use this code (2-3 common patterns)
+4. security_notes: Any security considerations (if applicable)"""
+
+                import asyncio
+
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    summary_text = loop.run_until_complete(enricher.generate_llm_response(summary_prompt))
+
+                    # Parse structured response
+                    pack_data["llm_summary"] = {
+                        "architecture": summary_text,
+                        "key_components": [],
+                        "usage_patterns": [],
+                        "security_notes": [],
+                    }
+                finally:
+                    loop.close()
+
+            except Exception as e:
+                if not output_json:
+                    console.print(f"[yellow]⚠ Failed to generate summary: {e}[/yellow]")
+
+        # Generate skill
+        try:
+            skill = generator.generate(pack_data, project_root)
+            created_files = generator.write_skill(skill)
+
+            result = {
+                "pack": pack_name,
+                "skill_name": skill.skill_name,
+                "files_created": [str(f) for f in created_files],
+            }
+            results.append(result)
+
+            if not output_json:
+                console.print(f"[green]✓[/green] Exported [bold]{pack_name}[/bold] → {skill.skill_path}")
+                if skill.reference_files:
+                    for ref_name in skill.reference_files:
+                        console.print(f"  [dim]+ {ref_name}[/dim]")
+
+        except Exception as e:
+            error_msg = f"Failed to generate skill: {e}"
+            errors.append({"pack": pack_name, "error": error_msg})
+            if not output_json:
+                console.print(f"[red]Error exporting {pack_name}: {error_msg}[/red]")
+
+    if output_json:
+        output_data = {
+            "success": results,
+            "errors": errors,
+            "format": skill_format,
+            "output_dir": str(skill_config.get_output_dir(project_root)),
+        }
+        print(json.dumps(output_data, indent=2))
+    else:
+        if results:
+            console.print(f"\n[bold green]✓ Exported {len(results)} skill(s)[/bold green]")
+            console.print(f"[dim]Output directory: {skill_config.get_output_dir(project_root)}[/dim]")
+
+            if skill_format == "claude":
+                console.print(
+                    "\n[cyan]Skills are now discoverable by Claude Code and compatible AI assistants.[/cyan]"
+                )
+            else:
+                console.print("\n[cyan]Skills exported for OpenAI Codex.[/cyan]")
+
+
 # =============================================================================
 # MCP Server Command
 # =============================================================================
 
 
 @cli.command("mcp-server")
-def mcp_server():
+@click.option(
+    "--transport",
+    type=click.Choice(["stdio", "sse", "streamable-http"]),
+    default="stdio",
+    help="Transport protocol (stdio for local, sse/streamable-http for remote)",
+)
+@click.option(
+    "--host",
+    default="localhost",
+    help="Host for remote transports (default: localhost)",
+)
+@click.option(
+    "--port",
+    default=8089,
+    type=int,
+    help="Port for remote transports (default: 8089)",
+)
+def mcp_server(transport: str, host: str, port: int):
     """Start the MCP (Model Context Protocol) server.
 
     This exposes autodoc context pack tools for AI assistants like Claude Code.
+
+    Transport options:
+      --transport stdio   Local stdio (default, for Claude Code)
+      --transport sse     Remote SSE server (for remote agents)
 
     Tools available:
       - pack_list: List all context packs
@@ -3281,20 +3512,30 @@ def mcp_server():
       - autodoc://packs - List all packs
       - autodoc://packs/{name} - Get specific pack info
 
-    Example usage in Claude Code:
-      Configure as MCP server in your settings, then use tools to
-      query and understand your codebase.
+    Examples:
+      # Local MCP (for Claude Code settings)
+      autodoc mcp-server
+
+      # Remote MCP server (for remote agents)
+      autodoc mcp-server --transport sse --port 8089
     """
     try:
-        from .mcp_server import main as mcp_main
+        from .mcp_server import mcp
 
         console.print("[bold]Starting autodoc MCP server...[/bold]")
+        console.print(f"[dim]Transport: {transport}[/dim]")
+        if transport != "stdio":
+            console.print(f"[dim]Listening on: http://{host}:{port}[/dim]")
         console.print(
             "[dim]Tools: pack_list, pack_info, pack_query, pack_files, pack_entities,[/dim]"
         )
         console.print("[dim]        impact_analysis, pack_status, pack_deps, pack_diff[/dim]")
         console.print("[dim]Resources: autodoc://packs, autodoc://packs/{name}[/dim]\n")
-        mcp_main()
+
+        if transport == "stdio":
+            mcp.run(transport="stdio")
+        else:
+            mcp.run(transport=transport, host=host, port=port)
     except ImportError as e:
         console.print(f"[red]Error: MCP dependencies not installed: {e}[/red]")
         console.print("[yellow]Install with: pip install fastmcp[/yellow]")
