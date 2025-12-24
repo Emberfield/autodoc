@@ -53,6 +53,13 @@ export interface Pack {
   tags: string[];
 }
 
+export interface SkillExportResult {
+  skillName: string;
+  skillPath: string;
+  filesCreated: string[];
+  packName: string;
+}
+
 export interface AutodocOptions {
   /** Path to the repository root */
   path: string;
@@ -449,6 +456,102 @@ export class Autodoc {
       cwd: this.repoPath,
       pythonPath: this.pythonPath,
     });
+  }
+
+  /**
+   * Export a context pack as a SKILL.md file.
+   *
+   * SKILL.md files are discoverable by Claude Code, OpenAI Codex,
+   * and other AI assistants.
+   *
+   * @param name - Pack name to export
+   * @param options - Export options
+   */
+  async exportSkill(
+    name: string,
+    options: {
+      format?: 'claude' | 'codex';
+      includeReference?: boolean;
+      outputDir?: string;
+    } = {}
+  ): Promise<SkillExportResult> {
+    const args = ['pack', 'export-skill', name, '--json'];
+
+    if (options.format) {
+      args.push('--format', options.format);
+    }
+
+    if (options.includeReference) {
+      args.push('--include-reference');
+    }
+
+    if (options.outputDir) {
+      args.push('--output', options.outputDir);
+    }
+
+    const result = await execAutodoc(args, {
+      cwd: this.repoPath,
+      pythonPath: this.pythonPath,
+    });
+
+    if (result.errors && result.errors.length > 0) {
+      throw new Error(result.errors[0].error);
+    }
+
+    const success = result.success?.[0];
+    if (!success) {
+      throw new Error('Failed to export skill');
+    }
+
+    return {
+      skillName: success.skill_name,
+      skillPath: success.files_created?.[0] || '',
+      filesCreated: success.files_created || [],
+      packName: success.pack,
+    };
+  }
+
+  /**
+   * Export all context packs as SKILL.md files.
+   *
+   * @param options - Export options
+   */
+  async exportAllSkills(
+    options: {
+      format?: 'claude' | 'codex';
+      includeReference?: boolean;
+      outputDir?: string;
+    } = {}
+  ): Promise<SkillExportResult[]> {
+    const args = ['pack', 'export-skill', '--all', '--json'];
+
+    if (options.format) {
+      args.push('--format', options.format);
+    }
+
+    if (options.includeReference) {
+      args.push('--include-reference');
+    }
+
+    if (options.outputDir) {
+      args.push('--output', options.outputDir);
+    }
+
+    const result = await execAutodoc(args, {
+      cwd: this.repoPath,
+      pythonPath: this.pythonPath,
+    });
+
+    if (!result.success || !Array.isArray(result.success)) {
+      return [];
+    }
+
+    return result.success.map((s: any) => ({
+      skillName: s.skill_name,
+      skillPath: s.files_created?.[0] || '',
+      filesCreated: s.files_created || [],
+      packName: s.pack,
+    }));
   }
 }
 

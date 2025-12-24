@@ -1,5 +1,13 @@
 from autodoc.__about__ import __version__
-from autodoc.sdk import AnalysisResult, Autodoc, ImpactResult, Pack, SearchResult, analyze
+from autodoc.sdk import (
+    AnalysisResult,
+    Autodoc,
+    ImpactResult,
+    Pack,
+    SearchResult,
+    SkillExportResult,
+    analyze,
+)
 
 __all__ = [
     "__version__",
@@ -8,5 +16,6 @@ __all__ = [
     "SearchResult",
     "AnalysisResult",
     "ImpactResult",
+    "SkillExportResult",
     "analyze",
 ]

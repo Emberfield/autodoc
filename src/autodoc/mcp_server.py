@@ -665,6 +665,84 @@ def pack_diff(name: str) -> str:
     )
 
 
+@mcp.tool
+def pack_export_skill(
+    name: str,
+    format: str = "claude",
+    include_reference: bool = False,
+) -> str:
+    """Export a context pack as a SKILL.md file for AI assistants.
+
+    Generates SKILL.md files that are discoverable by Claude Code,
+    OpenAI Codex, and other AI assistants. Skills provide structured
+    instructions and documentation for code modules.
+
+    Args:
+        name: Pack name to export (or 'all' to export all packs)
+        format: Output format - 'claude' (.claude/skills/) or 'codex' (~/.codex/skills/)
+        include_reference: Generate additional ENTITIES.md and ARCHITECTURE.md files
+
+    Returns:
+        JSON with exported skill information including file paths
+    """
+    from autodoc.skill_generator import SkillConfig, SkillFormat, SkillGenerator
+
+    config = get_config()
+
+    if name == "all":
+        packs_to_export = [p.name for p in config.context_packs]
+    else:
+        pack_config = config.get_pack(name)
+        if not pack_config:
+            return json.dumps({"error": f"Pack '{name}' not found"})
+        packs_to_export = [name]
+
+    skill_config = SkillConfig(
+        format=SkillFormat.CLAUDE if format == "claude" else SkillFormat.CODEX,
+        include_reference=include_reference,
+    )
+    generator = SkillGenerator(skill_config)
+
+    project_root = Path.cwd()
+    results = []
+    errors = []
+
+    for pack_name in packs_to_export:
+        pack_data_path = project_root / ".autodoc" / "packs" / f"{pack_name}.json"
+
+        if not pack_data_path.exists():
+            errors.append({
+                "pack": pack_name,
+                "error": f"Pack not built. Run: autodoc pack build {pack_name}",
+            })
+            continue
+
+        try:
+            with open(pack_data_path) as f:
+                pack_data = json.load(f)
+
+            skill = generator.generate(pack_data, project_root)
+            created_files = generator.write_skill(skill)
+
+            results.append({
+                "pack": pack_name,
+                "skill_name": skill.skill_name,
+                "files_created": [str(f) for f in created_files],
+            })
+        except Exception as e:
+            errors.append({
+                "pack": pack_name,
+                "error": str(e),
+            })
+
+    return json.dumps({
+        "success": results,
+        "errors": errors,
+        "format": format,
+        "output_dir": str(skill_config.get_output_dir(project_root)),
+    })
+
+
 @mcp.resource("autodoc://packs")
 def list_all_packs() -> str:
     """Resource listing all available context packs."""

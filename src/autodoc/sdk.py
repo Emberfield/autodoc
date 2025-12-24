@@ -29,6 +29,7 @@ from typing import Any, Dict, List, Optional, Union
 from .autodoc import SimpleAutodoc
 from .chromadb_embedder import ChromaDBEmbedder
 from .config import AutodocConfig, ContextPackConfig
+from .skill_generator import SkillConfig, SkillFormat, SkillGenerator
 
 
 @dataclass
@@ -66,6 +67,16 @@ class ImpactResult:
     critical_packs: List[str]
     files_affected: List[str]
     security_implications: List[str]
+
+
+@dataclass
+class SkillExportResult:
+    """Result of skill export."""
+
+    skill_name: str
+    skill_path: str
+    files_created: List[str]
+    pack_name: str
 
 
 @dataclass
@@ -428,6 +439,98 @@ class Autodoc:
         if pack:
             return pack.dependencies
         return []
+
+    def export_skill(
+        self,
+        name: str,
+        format: str = "claude",
+        include_reference: bool = False,
+        output_dir: Optional[Union[str, Path]] = None,
+    ) -> SkillExportResult:
+        """
+        Export a context pack as a SKILL.md file.
+
+        SKILL.md files are discoverable by Claude Code, OpenAI Codex,
+        and other AI assistants.
+
+        Args:
+            name: Pack name to export
+            format: Output format ('claude' or 'codex')
+            include_reference: Generate ENTITIES.md and ARCHITECTURE.md
+            output_dir: Custom output directory
+
+        Returns:
+            SkillExportResult with created file paths
+
+        Example:
+            >>> autodoc.export_skill('authentication')
+            SkillExportResult(skill_name='authentication', ...)
+        """
+        import json
+
+        pack_config = self.config.get_pack(name)
+        if not pack_config:
+            raise ValueError(f"Pack '{name}' not found")
+
+        # Load pack data
+        pack_data_path = self.path / ".autodoc" / "packs" / f"{name}.json"
+        if not pack_data_path.exists():
+            raise ValueError(
+                f"Pack '{name}' not built. Call build_pack('{name}') first."
+            )
+
+        pack_data = json.loads(pack_data_path.read_text())
+
+        # Configure skill generator
+        skill_config = SkillConfig(
+            format=SkillFormat.CLAUDE if format == "claude" else SkillFormat.CODEX,
+            include_reference=include_reference,
+            output_dir=Path(output_dir) if output_dir else None,
+        )
+        generator = SkillGenerator(skill_config)
+
+        # Generate and write skill
+        skill = generator.generate(pack_data, self.path)
+        created_files = generator.write_skill(skill)
+
+        return SkillExportResult(
+            skill_name=skill.skill_name,
+            skill_path=str(skill.skill_path),
+            files_created=[str(f) for f in created_files],
+            pack_name=name,
+        )
+
+    def export_all_skills(
+        self,
+        format: str = "claude",
+        include_reference: bool = False,
+        output_dir: Optional[Union[str, Path]] = None,
+    ) -> List[SkillExportResult]:
+        """
+        Export all context packs as SKILL.md files.
+
+        Args:
+            format: Output format ('claude' or 'codex')
+            include_reference: Generate reference files
+            output_dir: Custom output directory
+
+        Returns:
+            List of SkillExportResult for each exported pack
+        """
+        results = []
+        for pack in self.list_packs():
+            try:
+                result = self.export_skill(
+                    pack.name,
+                    format=format,
+                    include_reference=include_reference,
+                    output_dir=output_dir,
+                )
+                results.append(result)
+            except ValueError:
+                # Skip packs that aren't built
+                continue
+        return results
 
     def load(self, cache_path: Optional[str] = None) -> None:
         """Load previously analyzed data from cache."""
