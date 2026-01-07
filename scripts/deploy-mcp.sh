@@ -2,33 +2,64 @@
 # Deploy Autodoc MCP Server to Google Cloud Run
 #
 # Usage:
-#   ./scripts/deploy-mcp.sh [project-id] [region]
+#   ./scripts/deploy-mcp.sh [project-id] [region] [--lite]
+#
+# Options:
+#   --lite    Use lightweight image (~200MB, keyword search only)
+#             Default is full image (~3GB, includes semantic search)
 #
 # Example:
 #   ./scripts/deploy-mcp.sh my-project us-central1
+#   ./scripts/deploy-mcp.sh my-project us-central1 --lite
 
 set -e
 
-PROJECT_ID=${1:-$(gcloud config get-value project 2>/dev/null)}
-REGION=${2:-us-central1}
+# Parse arguments
+LITE_MODE=false
+POSITIONAL_ARGS=()
+
+for arg in "$@"; do
+    case $arg in
+        --lite)
+            LITE_MODE=true
+            shift
+            ;;
+        *)
+            POSITIONAL_ARGS+=("$arg")
+            ;;
+    esac
+done
+
+PROJECT_ID=${POSITIONAL_ARGS[0]:-$(gcloud config get-value project 2>/dev/null)}
+REGION=${POSITIONAL_ARGS[1]:-us-central1}
 SERVICE_NAME="autodoc-mcp"
 IMAGE="gcr.io/${PROJECT_ID}/${SERVICE_NAME}"
 
 if [ -z "$PROJECT_ID" ]; then
     echo "Error: No project ID provided and no default project configured"
-    echo "Usage: ./scripts/deploy-mcp.sh <project-id> [region]"
+    echo "Usage: ./scripts/deploy-mcp.sh <project-id> [region] [--lite]"
     exit 1
 fi
 
+if [ "$LITE_MODE" = true ]; then
+    DOCKERFILE="Dockerfile.mcp"
+    echo "Using LIGHTWEIGHT image (~200MB, keyword search only)"
+else
+    DOCKERFILE="Dockerfile"
+    echo "Using FULL image (~3GB, includes semantic search)"
+fi
+
+echo ""
 echo "Deploying Autodoc MCP Server to Cloud Run"
-echo "  Project: $PROJECT_ID"
-echo "  Region:  $REGION"
-echo "  Service: $SERVICE_NAME"
+echo "  Project:    $PROJECT_ID"
+echo "  Region:     $REGION"
+echo "  Service:    $SERVICE_NAME"
+echo "  Dockerfile: $DOCKERFILE"
 echo ""
 
 # Build and push container image
 echo "Building container image..."
-gcloud builds submit --tag "$IMAGE" --project "$PROJECT_ID" .
+gcloud builds submit --tag "$IMAGE" --project "$PROJECT_ID" -f "$DOCKERFILE" .
 
 # Deploy to Cloud Run
 echo "Deploying to Cloud Run..."

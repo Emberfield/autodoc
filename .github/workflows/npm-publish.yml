@@ -36,6 +36,10 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
+    environment: npm  # Optional: use environment for additional protection
+    permissions:
+      contents: read
+      id-token: write  # Required for OIDC trusted publishing
     steps:
       - uses: actions/checkout@v4
 
@@ -45,13 +49,12 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: sdk/nodejs/dist/
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Publish to npm
+      - name: Build
+        run: npm run build
+
+      - name: Publish to npm (trusted publishing)
         run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        # No NODE_AUTH_TOKEN needed - uses OIDC

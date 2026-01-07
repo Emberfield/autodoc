@@ -1,0 +1,40 @@
+# Autodoc MCP Server - Lightweight Image
+# ~200MB vs ~3GB for full image
+# Excludes ML dependencies (chromadb, sentence-transformers, torch)
+# Semantic search falls back to keyword search
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install only essential system deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install minimal Python dependencies directly (no uv needed)
+RUN pip install --no-cache-dir \
+    fastmcp>=2.14.1 \
+    pydantic>=2.0.0 \
+    pyyaml>=6.0.1 \
+    click>=8.1.7 \
+    rich>=13.7.0 \
+    python-dotenv>=1.0.0
+
+# Copy only necessary source files
+COPY src/autodoc/__about__.py src/autodoc/__init__.py ./src/autodoc/
+COPY src/autodoc/config.py src/autodoc/mcp_server.py ./src/autodoc/
+COPY src/autodoc/skill_generator.py ./src/autodoc/
+
+# Create stub modules for imports that won't be used
+RUN echo "# Stub - not available in lightweight image" > src/autodoc/chromadb_embedder.py
+
+# Create non-root user
+RUN useradd -m -u 1000 autodoc
+USER autodoc
+
+ENV PORT=8080
+ENV HOST=0.0.0.0
+ENV PYTHONPATH=/app/src
+
+# Run MCP server
+CMD ["python", "-m", "autodoc.mcp_server", "--transport", "sse", "--host", "0.0.0.0", "--port", "8080"]

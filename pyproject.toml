@@ -60,6 +60,14 @@ graph = [
     "plotly>=5.17.0",
     "pyvis>=0.3.2",
 ]
+# Minimal dependencies for MCP server only (no ML/embeddings)
+mcp = [
+    "fastmcp>=2.14.1",
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0.1",
+    "click>=8.1.7",
+    "rich>=13.7.0",
+]
 
 [project.scripts]
 autodoc = "autodoc.cli:main"
