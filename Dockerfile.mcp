@@ -7,11 +7,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install only essential system deps
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install minimal Python dependencies directly (no uv needed)
+# Install minimal Python dependencies directly
 RUN pip install --no-cache-dir \
     fastmcp>=2.14.1 \
     pydantic>=2.0.0 \
@@ -20,16 +16,25 @@ RUN pip install --no-cache-dir \
     rich>=13.7.0 \
     python-dotenv>=1.0.0
 
+# Create source directory structure
+RUN mkdir -p /app/src/autodoc
+
 # Copy only necessary source files
-COPY src/autodoc/__about__.py src/autodoc/__init__.py ./src/autodoc/
-COPY src/autodoc/config.py src/autodoc/mcp_server.py ./src/autodoc/
-COPY src/autodoc/skill_generator.py ./src/autodoc/
+COPY src/autodoc/__about__.py /app/src/autodoc/
+COPY src/autodoc/config.py /app/src/autodoc/
+COPY src/autodoc/mcp_server.py /app/src/autodoc/
+COPY src/autodoc/skill_generator.py /app/src/autodoc/
 
-# Create stub modules for imports that won't be used
-RUN echo "# Stub - not available in lightweight image" > src/autodoc/chromadb_embedder.py
+# Create minimal __init__.py (avoid importing heavy sdk module)
+RUN echo 'from autodoc.__about__ import __version__' > /app/src/autodoc/__init__.py
 
-# Create non-root user
-RUN useradd -m -u 1000 autodoc
+# Create stub for chromadb_embedder (imported lazily in mcp_server)
+RUN echo '# Stub - not available in lightweight image' > /app/src/autodoc/chromadb_embedder.py
+
+# Create non-root user and fix permissions
+RUN useradd -m -u 1000 autodoc && \
+    chown -R autodoc:autodoc /app
+
 USER autodoc
 
 ENV PORT=8080

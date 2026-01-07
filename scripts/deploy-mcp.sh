@@ -59,7 +59,13 @@ echo ""
 
 # Build and push container image
 echo "Building container image..."
-gcloud builds submit --tag "$IMAGE" --project "$PROJECT_ID" -f "$DOCKERFILE" .
+if [ "$DOCKERFILE" != "Dockerfile" ]; then
+    # gcloud builds submit only supports 'Dockerfile', so temporarily swap
+    mv Dockerfile Dockerfile.full
+    mv "$DOCKERFILE" Dockerfile
+    trap "mv Dockerfile $DOCKERFILE; mv Dockerfile.full Dockerfile" EXIT
+fi
+gcloud builds submit --tag "$IMAGE" --project "$PROJECT_ID" .
 
 # Deploy to Cloud Run
 echo "Deploying to Cloud Run..."
