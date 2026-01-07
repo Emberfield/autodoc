@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Autodoc - AI-Powered Code Intelligence</title>
+  <meta name="description" content="Analyze and understand codebases with AI-powered semantic search, context packs, and MCP server integration.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg: #0a0a0b;
+      --surface: #141415;
+      --border: #2a2a2d;
+      --text: #fafafa;
+      --text-muted: #888;
+      --accent: #3b82f6;
+      --accent-hover: #60a5fa;
+      --green: #22c55e;
+      --purple: #a855f7;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    a:hover {
+      color: var(--accent-hover);
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* Header */
+    header {
+      padding: 20px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .logo {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .logo-icon {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, var(--accent), var(--purple));
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 32px;
+      align-items: center;
+    }
+
+    .nav-links a {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      font-weight: 500;
+    }
+
+    .nav-links a:hover {
+      color: var(--text);
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-weight: 500;
+      font-size: 0.95rem;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: var(--accent-hover);
+      color: white;
+    }
+
+    .btn-secondary {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    .btn-secondary:hover {
+      border-color: var(--text-muted);
+      color: var(--text);
+    }
+
+    /* Hero */
+    .hero {
+      padding: 100px 0 80px;
+      text-align: center;
+    }
+
+    .hero h1 {
+      font-size: 3.5rem;
+      font-weight: 700;
+      line-height: 1.1;
+      margin-bottom: 24px;
+      background: linear-gradient(135deg, var(--text) 0%, var(--text-muted) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero p {
+      font-size: 1.25rem;
+      color: var(--text-muted);
+      max-width: 600px;
+      margin: 0 auto 40px;
+    }
+
+    .hero-buttons {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .hero-code {
+      margin-top: 60px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      text-align: left;
+      overflow-x: auto;
+    }
+
+    .hero-code pre {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+    }
+
+    .hero-code .cmd {
+      color: var(--green);
+    }
+
+    .hero-code .comment {
+      color: #666;
+    }
+
+    /* Features */
+    .features {
+      padding: 80px 0;
+    }
+
+    .features h2 {
+      text-align: center;
+      font-size: 2rem;
+      margin-bottom: 60px;
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 24px;
+    }
+
+    .feature {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 32px;
+    }
+
+    .feature-icon {
+      width: 48px;
+      height: 48px;
+      background: linear-gradient(135deg, var(--accent), var(--purple));
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      margin-bottom: 20px;
+    }
+
+    .feature h3 {
+      font-size: 1.25rem;
+      margin-bottom: 12px;
+    }
+
+    .feature p {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+    }
+
+    /* SDKs */
+    .sdks {
+      padding: 80px 0;
+      border-top: 1px solid var(--border);
+    }
+
+    .sdks h2 {
+      text-align: center;
+      font-size: 2rem;
+      margin-bottom: 16px;
+    }
+
+    .sdks > p {
+      text-align: center;
+      color: var(--text-muted);
+      margin-bottom: 48px;
+    }
+
+    .sdk-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px;
+    }
+
+    .sdk-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 28px;
+    }
+
+    .sdk-card h3 {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .sdk-card code {
+      display: block;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      color: var(--green);
+      margin-bottom: 16px;
+    }
+
+    .sdk-card a {
+      font-size: 0.9rem;
+    }
+
+    /* MCP */
+    .mcp {
+      padding: 80px 0;
+      border-top: 1px solid var(--border);
+    }
+
+    .mcp h2 {
+      text-align: center;
+      font-size: 2rem;
+      margin-bottom: 16px;
+    }
+
+    .mcp > p {
+      text-align: center;
+      color: var(--text-muted);
+      margin-bottom: 48px;
+      max-width: 600px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .mcp-config {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      max-width: 500px;
+      margin: 0 auto;
+    }
+
+    .mcp-config h4 {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .mcp-config pre {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      color: var(--text);
+    }
+
+    .mcp-config .key {
+      color: var(--purple);
+    }
+
+    .mcp-config .string {
+      color: var(--green);
+    }
+
+    /* Footer */
+    footer {
+      padding: 40px 0;
+      border-top: 1px solid var(--border);
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+
+    footer a {
+      color: var(--text-muted);
+    }
+
+    footer a:hover {
+      color: var(--text);
+    }
+
+    .footer-links {
+      display: flex;
+      gap: 24px;
+      justify-content: center;
+      margin-bottom: 16px;
+    }
+
+    @media (max-width: 640px) {
+      .hero h1 {
+        font-size: 2.5rem;
+      }
+
+      .hero p {
+        font-size: 1.1rem;
+      }
+
+      .nav-links {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <nav class="container">
+      <div class="logo">
+        <div class="logo-icon">A</div>
+        autodoc
+      </div>
+      <div class="nav-links">
+        <a href="https://github.com/Emberfield/autodoc">GitHub</a>
+        <a href="https://pypi.org/project/ai-code-autodoc/">PyPI</a>
+        <a href="https://www.npmjs.com/package/@autodoc-ai/sdk">npm</a>
+        <a href="https://github.com/Emberfield/autodoc" class="btn btn-primary">Get Started</a>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="container">
+        <h1>AI-Powered Code Intelligence</h1>
+        <p>Analyze codebases with semantic search, organize with context packs, and integrate with AI assistants via MCP.</p>
+        <div class="hero-buttons">
+          <a href="https://github.com/Emberfield/autodoc" class="btn btn-primary">View on GitHub</a>
+          <a href="#install" class="btn btn-secondary">Installation</a>
+        </div>
+        <div class="hero-code">
+          <pre><span class="comment"># Install autodoc</span>
+<span class="cmd">pip install ai-code-autodoc</span>
+
+<span class="comment"># Analyze your codebase</span>
+<span class="cmd">autodoc analyze ./src --save</span>
+
+<span class="comment"># Search with natural language</span>
+<span class="cmd">autodoc search "authentication flow"</span>
+
+<span class="comment"># Generate context packs</span>
+<span class="cmd">autodoc pack auto-generate --save</span></pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="features" id="features">
+      <div class="container">
+        <h2>Features</h2>
+        <div class="features-grid">
+          <div class="feature">
+            <div class="feature-icon">🔍</div>
+            <h3>Semantic Search</h3>
+            <p>Search your codebase using natural language. Find functions, classes, and patterns with AI-powered embeddings.</p>
+          </div>
+          <div class="feature">
+            <div class="feature-icon">📦</div>
+            <h3>Context Packs</h3>
+            <p>Organize code into logical groups. Auto-detect features, track dependencies, and analyze impact of changes.</p>
+          </div>
+          <div class="feature">
+            <div class="feature-icon">🤖</div>
+            <h3>MCP Integration</h3>
+            <p>Connect to Claude and other AI assistants via the Model Context Protocol. Give AI full codebase awareness.</p>
+          </div>
+          <div class="feature">
+            <div class="feature-icon">⚡</div>
+            <h3>Local Embeddings</h3>
+            <p>Free semantic search using local sentence-transformers. No API keys required for basic functionality.</p>
+          </div>
+          <div class="feature">
+            <div class="feature-icon">🔄</div>
+            <h3>Impact Analysis</h3>
+            <p>Understand how file changes affect context packs and dependent code. Plan refactors with confidence.</p>
+          </div>
+          <div class="feature">
+            <div class="feature-icon">📊</div>
+            <h3>Code Graph</h3>
+            <p>Visualize relationships between modules, functions, and classes. Explore your architecture interactively.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="sdks" id="install">
+      <div class="container">
+        <h2>Installation</h2>
+        <p>Available as a CLI tool and SDKs for Python and Node.js</p>
+        <div class="sdk-cards">
+          <div class="sdk-card">
+            <h3>🐍 Python / CLI</h3>
+            <code>pip install ai-code-autodoc</code>
+            <a href="https://pypi.org/project/ai-code-autodoc/">View on PyPI →</a>
+          </div>
+          <div class="sdk-card">
+            <h3>📦 Node.js</h3>
+            <code>npm install @autodoc-ai/sdk</code>
+            <a href="https://www.npmjs.com/package/@autodoc-ai/sdk">View on npm →</a>
+          </div>
+          <div class="sdk-card">
+            <h3>🔧 From Source</h3>
+            <code>git clone github.com/Emberfield/autodoc</code>
+            <a href="https://github.com/Emberfield/autodoc">View on GitHub →</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="mcp" id="mcp">
+      <div class="container">
+        <h2>MCP Server</h2>
+        <p>Connect autodoc to Claude Desktop or any MCP-compatible AI assistant for full codebase intelligence.</p>
+        <div class="mcp-config">
+          <h4>Claude Desktop Config</h4>
+          <pre>{
+  <span class="key">"mcpServers"</span>: {
+    <span class="key">"autodoc"</span>: {
+      <span class="key">"transport"</span>: <span class="string">"sse"</span>,
+      <span class="key">"url"</span>: <span class="string">"https://mcp.autodoc.tools/sse"</span>
+    }
+  }
+}</pre>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <div class="footer-links">
+        <a href="https://github.com/Emberfield/autodoc">GitHub</a>
+        <a href="https://pypi.org/project/ai-code-autodoc/">PyPI</a>
+        <a href="https://www.npmjs.com/package/@autodoc-ai/sdk">npm</a>
+        <a href="https://github.com/Emberfield/autodoc/issues">Issues</a>
+      </div>
+      <p>MIT License · Built by <a href="https://github.com/Emberfield">Emberfield</a></p>
+    </div>
+  </footer>
+</body>
+</html>

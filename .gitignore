@@ -30,6 +30,7 @@ autodoc_export.zip
 # Visualization outputs (except docs/)
 *.html
 !docs/*.html
+!site/*.html
 *.png
 !docs/*.png
 !docs/images/*.png
