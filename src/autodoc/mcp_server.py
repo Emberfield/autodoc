@@ -766,8 +766,41 @@ def get_pack_resource(name: str) -> str:
 
 
 def main():
-    """Run the MCP server."""
-    mcp.run()
+    """Run the MCP server.
+
+    Supports multiple transport modes:
+    - stdio: Default for local MCP clients (Claude Desktop, etc.)
+    - sse: Server-Sent Events for remote HTTP access
+    - http: Streamable HTTP transport (recommended for new deployments)
+    """
+    import argparse
+    import os
+
+    parser = argparse.ArgumentParser(description="Autodoc MCP Server")
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "sse", "http"],
+        default=os.environ.get("MCP_TRANSPORT", "stdio"),
+        help="Transport mode (default: stdio, or MCP_TRANSPORT env var)",
+    )
+    parser.add_argument(
+        "--host",
+        default=os.environ.get("HOST", "127.0.0.1"),
+        help="Host to bind to for HTTP/SSE transport (default: 127.0.0.1)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.environ.get("PORT", "8080")),
+        help="Port to bind to for HTTP/SSE transport (default: 8080)",
+    )
+    args = parser.parse_args()
+
+    if args.transport == "stdio":
+        mcp.run()
+    else:
+        # HTTP or SSE transport for remote access
+        mcp.run(transport=args.transport, host=args.host, port=args.port)
 
 
 if __name__ == "__main__":

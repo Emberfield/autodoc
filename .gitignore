@@ -61,3 +61,7 @@ ai_collaboration.db
 .vscode/
 *.swp
 *.swo
+
+# Node.js
+node_modules/
+sdk/nodejs/dist/

@@ -13,13 +13,13 @@ pip install ai-code-autodoc
 ## Installation
 
 ```bash
-npm install autodoc-sdk
+npm install @autodoc-ai/sdk
 ```
 
 ## Quick Start
 
 ```typescript
-import { Autodoc } from 'autodoc-sdk';
+import { Autodoc } from '@autodoc-ai/sdk';
 
 // Initialize with your repo path
 const autodoc = new Autodoc('/path/to/your/repo');
@@ -184,7 +184,7 @@ import {
   ImpactResult,
   Pack,
   AutodocOptions,
-} from 'autodoc-sdk';
+} from '@autodoc-ai/sdk';
 ```
 
 ## License

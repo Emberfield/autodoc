@@ -1,0 +1,56 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv
+venv
+.env
+.pytest_cache
+.ruff_cache
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Build artifacts
+dist
+*.egg-info
+build
+
+# Large cache files
+autodoc_cache.json
+autodoc_enrichment_cache.json
+*.db
+
+# Node SDK (not needed for MCP server)
+sdk/
+node_modules
+
+# Test artifacts
+tests/
+.coverage
+htmlcov
+
+# Documentation (exclude all except README.md needed for build)
+docs/
+CLAUDE.md
+CHANGELOG.md
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+AUTODOC.md
+CLI_DEMO.md
+TESTING.md
+CONTRIBUTORS.md
+AI_COLLABORATION_README.md
+
+# Local autodoc data
+.autodoc/
+.autodoc_chromadb/

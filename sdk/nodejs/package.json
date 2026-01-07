@@ -1,5 +1,5 @@
 {
-  "name": "autodoc-sdk",
+  "name": "@autodoc-ai/sdk",
   "version": "0.8.0",
   "description": "Node.js SDK for Autodoc - AI-powered code intelligence",
   "main": "dist/index.js",

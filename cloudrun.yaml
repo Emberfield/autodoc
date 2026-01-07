@@ -1,0 +1,29 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: autodoc-mcp
+  labels:
+    cloud.googleapis.com/location: us-central1
+spec:
+  template:
+    metadata:
+      annotations:
+        # Scale to zero when not in use (cost savings)
+        autoscaling.knative.dev/minScale: "0"
+        autoscaling.knative.dev/maxScale: "3"
+        # Allow up to 10 concurrent requests per instance
+        autoscaling.knative.dev/target: "10"
+    spec:
+      containerConcurrency: 10
+      timeoutSeconds: 300
+      containers:
+        - image: gcr.io/PROJECT_ID/autodoc-mcp:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: MCP_TRANSPORT
+              value: "sse"
+          resources:
+            limits:
+              cpu: "1"
+              memory: "512Mi"
