@@ -87,27 +87,29 @@ export default function OverviewPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {features.slice(0, 6).map((feature) => (
-              <Card key={feature.id} className="hover:border-primary/50 transition-colors">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-lg flex items-center justify-between">
-                    <span>{feature.display_name || feature.name || `Feature ${feature.id}`}</span>
-                    <Badge variant="outline" className="text-xs">
-                      {feature.file_count} files
-                    </Badge>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {feature.reasoning ? (
-                    <p className="text-sm text-muted-foreground leading-relaxed">
-                      {feature.reasoning}
-                    </p>
-                  ) : (
-                    <p className="text-sm text-muted-foreground italic">
-                      Run <code className="text-xs bg-muted px-1 rounded">autodoc features name</code> for AI description
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
+              <Link key={feature.id} href={`/features/${feature.id}`}>
+                <Card className="hover:border-primary/50 transition-colors cursor-pointer h-full">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-lg flex items-center justify-between">
+                      <span>{feature.display_name || feature.name || `Feature ${feature.id}`}</span>
+                      <Badge variant="outline" className="text-xs">
+                        {feature.file_count} files
+                      </Badge>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {feature.reasoning ? (
+                      <p className="text-sm text-muted-foreground leading-relaxed">
+                        {feature.reasoning}
+                      </p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground italic">
+                        Run <code className="text-xs bg-muted px-1 rounded">autodoc features name</code> for AI description
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              </Link>
             ))}
           </div>
         </section>

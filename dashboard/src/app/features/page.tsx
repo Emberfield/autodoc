@@ -1,7 +1,8 @@
 import { loadDashboardData } from "@/lib/data";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Sparkles, FileCode, Brain, ChevronRight, AlertCircle } from "lucide-react";
+import { Sparkles, FileCode, Brain, ChevronRight, AlertCircle, ArrowRight } from "lucide-react";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -167,6 +168,14 @@ export default function FeaturesPage() {
                     </span>
                   </div>
                 )}
+
+                {/* View Details Link */}
+                <Link
+                  href={`/features/${feature.id}`}
+                  className="inline-flex items-center gap-1 text-sm text-primary hover:underline pt-2"
+                >
+                  View all entities <ArrowRight className="h-4 w-4" />
+                </Link>
               </CardContent>
             </Card>
           ))}

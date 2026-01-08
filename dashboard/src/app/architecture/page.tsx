@@ -1,7 +1,8 @@
 import { loadDashboardData } from "@/lib/data";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { BookOpen, Layers, Sparkles, Code2, ArrowRight, Brain } from "lucide-react";
+import { BookOpen, Layers, Sparkles, Code2, ArrowRight, Brain, GitBranch, Link2 } from "lucide-react";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,31 @@ export default function ArchitecturePage() {
     .slice(0, 8);
 
   const projectName = data.projectRoot.split('/').pop() || 'Project';
+
+  // Calculate feature relationships (shared files between features)
+  const featureRelationships: Array<{
+    from: string;
+    to: string;
+    sharedFiles: number;
+  }> = [];
+
+  if (features.length > 1) {
+    for (let i = 0; i < features.length; i++) {
+      for (let j = i + 1; j < features.length; j++) {
+        const filesA = new Set(features[i].files);
+        const filesB = new Set(features[j].files);
+        const shared = [...filesA].filter(f => filesB.has(f)).length;
+
+        if (shared > 0) {
+          featureRelationships.push({
+            from: features[i].display_name || features[i].name || `Feature ${features[i].id}`,
+            to: features[j].display_name || features[j].name || `Feature ${features[j].id}`,
+            sharedFiles: shared,
+          });
+        }
+      }
+    }
+  }
 
   return (
     <div className="p-6 space-y-8 max-w-4xl">
@@ -86,35 +112,139 @@ export default function ArchitecturePage() {
 
           <div className="space-y-4">
             {features.map((feature, index) => (
-              <Card key={feature.id}>
-                <CardContent className="pt-4">
-                  <div className="flex items-start gap-4">
-                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary font-semibold text-sm flex-shrink-0">
-                      {index + 1}
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-lg">
-                        {feature.display_name || feature.name || `Feature ${feature.id}`}
-                      </h3>
-                      {feature.reasoning ? (
-                        <p className="text-muted-foreground mt-1 leading-relaxed">
-                          {feature.reasoning}
-                        </p>
-                      ) : (
-                        <p className="text-muted-foreground mt-1 italic">
-                          No description available yet
-                        </p>
-                      )}
-                      <div className="flex items-center gap-2 mt-3 text-sm text-muted-foreground">
-                        <Code2 className="h-4 w-4" />
-                        <span>Implemented across {feature.file_count} files</span>
+              <Link key={feature.id} href={`/features/${feature.id}`}>
+                <Card className="hover:border-primary/50 transition-colors cursor-pointer">
+                  <CardContent className="pt-4">
+                    <div className="flex items-start gap-4">
+                      <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary font-semibold text-sm flex-shrink-0">
+                        {index + 1}
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-lg">
+                          {feature.display_name || feature.name || `Feature ${feature.id}`}
+                        </h3>
+                        {feature.reasoning ? (
+                          <p className="text-muted-foreground mt-1 leading-relaxed">
+                            {feature.reasoning}
+                          </p>
+                        ) : (
+                          <p className="text-muted-foreground mt-1 italic">
+                            No description available yet
+                          </p>
+                        )}
+                        <div className="flex items-center gap-2 mt-3 text-sm text-muted-foreground">
+                          <Code2 className="h-4 w-4" />
+                          <span>Implemented across {feature.file_count} files</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
+              </Link>
             ))}
           </div>
+        </section>
+      )}
+
+      {/* Feature Graph - Visual representation of code relationships */}
+      {features.length > 0 && data.features && (
+        <section className="space-y-4">
+          <h2 className="text-xl font-semibold flex items-center gap-2">
+            <GitBranch className="h-5 w-5 text-primary" />
+            Code Relationship Graph
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Detected using Neo4j Graph Data Science Louvain algorithm
+          </p>
+
+          <Card>
+            <CardContent className="pt-4 space-y-4">
+              {/* Modularity Score */}
+              <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                <div>
+                  <p className="font-medium">Graph Modularity</p>
+                  <p className="text-sm text-muted-foreground">
+                    How well the code separates into distinct features
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-2xl font-bold text-primary">
+                    {(data.features.modularity * 100).toFixed(0)}%
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {data.features.modularity > 0.5 ? "Well structured" :
+                     data.features.modularity > 0.3 ? "Moderately coupled" :
+                     "Highly coupled"}
+                  </p>
+                </div>
+              </div>
+
+              {/* Visual Feature Nodes */}
+              <div className="py-4">
+                <div className="flex flex-wrap justify-center gap-4">
+                  {features.map((feature, i) => {
+                    const size = Math.max(60, Math.min(120, 40 + feature.file_count * 4));
+                    return (
+                      <Link
+                        key={feature.id}
+                        href={`/features/${feature.id}`}
+                        className="group"
+                      >
+                        <div
+                          className="flex items-center justify-center rounded-full bg-primary/10 border-2 border-primary/30 hover:border-primary transition-all hover:scale-105"
+                          style={{ width: size, height: size }}
+                        >
+                          <div className="text-center p-2">
+                            <p className="text-xs font-medium truncate max-w-[80px]">
+                              {(feature.display_name || feature.name || `F${feature.id}`).split(' ')[0]}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground">
+                              {feature.file_count} files
+                            </p>
+                          </div>
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Relationships */}
+              {featureRelationships.length > 0 && (
+                <div className="border-t pt-4">
+                  <p className="text-sm font-medium mb-3 flex items-center gap-2">
+                    <Link2 className="h-4 w-4" />
+                    Feature Connections
+                  </p>
+                  <div className="space-y-2">
+                    {featureRelationships.map((rel, i) => (
+                      <div
+                        key={i}
+                        className="flex items-center gap-2 text-sm p-2 bg-muted/30 rounded"
+                      >
+                        <Badge variant="outline" className="text-xs">
+                          {rel.from}
+                        </Badge>
+                        <span className="text-muted-foreground">↔</span>
+                        <Badge variant="outline" className="text-xs">
+                          {rel.to}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground ml-auto">
+                          {rel.sharedFiles} shared files
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {featureRelationships.length === 0 && features.length > 1 && (
+                <p className="text-sm text-muted-foreground text-center py-2">
+                  Features are well-isolated with no shared files
+                </p>
+              )}
+            </CardContent>
+          </Card>
         </section>
       )}
 
