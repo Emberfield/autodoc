@@ -21,7 +21,13 @@ print_info() {
 }
 
 DEMO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+AUTODOC_ROOT="$(cd "$DEMO_DIR/../.." && pwd)"
 REPO_DIR="$DEMO_DIR/fastapi-repo"
+
+# Helper function to run autodoc commands
+autodoc_run() {
+    cd "$AUTODOC_ROOT" && uv run python -m autodoc.cli "$@"
+}
 
 # Step 1: Clone FastAPI (if not exists)
 print_step "Step 1: Setting up FastAPI repository"
@@ -32,40 +38,38 @@ else
     git clone --depth 1 https://github.com/tiangolo/fastapi.git "$REPO_DIR"
 fi
 
-cd "$REPO_DIR"
-
 # Step 2: Analyze the codebase
 print_step "Step 2: Analyzing codebase structure"
 print_info "This extracts all functions, classes, and their relationships..."
-autodoc analyze ./fastapi --save
+autodoc_run analyze "$REPO_DIR/fastapi" --save
 
 # Step 3: Check what we found
 print_step "Step 3: Checking analysis results"
-autodoc check
+autodoc_run check
 
 # Step 4: Auto-generate context packs
 print_step "Step 4: Auto-generating context packs"
 print_info "Autodoc detects logical groupings based on directory structure..."
-autodoc pack auto-generate --save
+autodoc_run pack auto-generate --save
 
 # Step 5: List the packs
 print_step "Step 5: Listing detected packs"
-autodoc pack list
+autodoc_run pack list
 
 # Step 6: Search for code
 print_step "Step 6: Semantic search examples"
 print_info "Searching for 'dependency injection'..."
-autodoc search "dependency injection" --limit 5
+autodoc_run search "dependency injection" --limit 5 || print_info "Search returned no results"
 
 echo ""
 print_info "Searching for 'request validation'..."
-autodoc search "request validation" --limit 5
+autodoc_run search "request validation" --limit 5 || print_info "Search returned no results"
 
 # Step 7: Enrich with AI (if API key available)
 print_step "Step 7: AI-powered enrichment (optional)"
 if [ -n "$ANTHROPIC_API_KEY" ] || [ -n "$OPENAI_API_KEY" ]; then
     print_info "API key found! Running enrichment on a sample..."
-    autodoc enrich --inline --limit 10 --no-backup
+    autodoc_run enrich --inline --limit 10 --no-backup || print_info "Enrichment skipped"
 else
     print_info "No API key found. Set ANTHROPIC_API_KEY or OPENAI_API_KEY to enable AI enrichment."
     print_info "Skipping enrichment step..."
@@ -73,14 +77,14 @@ fi
 
 # Step 8: Feature detection (requires Neo4j)
 print_step "Step 8: Feature detection (requires Neo4j + GDS)"
-if command -v neo4j &> /dev/null || [ -n "$NEO4J_URI" ]; then
-    print_info "Building code graph..."
-    autodoc graph --clear || print_info "Graph build skipped (Neo4j not configured)"
+if [ -n "$NEO4J_URI" ] || [ -n "$NEO4J_PASSWORD" ]; then
+    print_info "Neo4j configured. Building code graph..."
+    autodoc_run graph --clear || print_info "Graph build skipped (Neo4j not reachable)"
 
     print_info "Detecting features..."
-    autodoc features detect || print_info "Feature detection skipped"
+    autodoc_run features detect || print_info "Feature detection skipped"
 else
-    print_info "Neo4j not found. Install Neo4j with GDS plugin for feature detection."
+    print_info "Neo4j not configured. Set NEO4J_URI and NEO4J_PASSWORD for feature detection."
     print_info "Skipping graph and feature detection..."
 fi
 
@@ -105,7 +109,6 @@ ${BLUE}Learn more: https://autodoc.tools${NC}
 
 # Step 9: Launch Dashboard
 print_step "Step 9: Launching Dashboard UI"
-AUTODOC_ROOT="$(cd "$DEMO_DIR/../.." && pwd)"
 DASHBOARD_DIR="$AUTODOC_ROOT/dashboard"
 
 if [ -d "$DASHBOARD_DIR" ]; then
