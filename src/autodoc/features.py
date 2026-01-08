@@ -453,6 +453,43 @@ class FeatureNamer:
 
         self.config: AutodocConfig = config
 
+    def _load_file_summaries(self) -> Dict[str, str]:
+        """Load file summaries from enrichment cache."""
+        cache_path = Path("autodoc_enrichment_cache.json")
+        if not cache_path.exists():
+            return {}
+
+        try:
+            with open(cache_path) as f:
+                enrichment_cache = json.load(f)
+
+            # Aggregate entity summaries by file
+            file_summaries: Dict[str, List[str]] = {}
+            for key, data in enrichment_cache.items():
+                # Key format: "./path/to/file.py:EntityName:line"
+                parts = key.split(":")
+                if len(parts) >= 2:
+                    file_path = parts[0]
+                    # Normalize path
+                    if file_path.startswith("./"):
+                        file_path = file_path[2:]
+                    desc = data.get("description", "")
+                    if desc and file_path not in ["", "."]:
+                        if file_path not in file_summaries:
+                            file_summaries[file_path] = []
+                        # Take first sentence only
+                        first_sentence = desc.split(".")[0] + "."
+                        file_summaries[file_path].append(first_sentence)
+
+            # Combine summaries per file (take first 2)
+            result = {}
+            for file_path, summaries in file_summaries.items():
+                result[file_path] = " ".join(summaries[:2])
+            return result
+        except Exception as e:
+            log.warning(f"Could not load enrichment cache: {e}")
+            return {}
+
     async def name_feature(
         self,
         feature: DetectedFeature,
@@ -469,10 +506,17 @@ class FeatureNamer:
         """
         from .enrichment import LLMEnricher
 
+        # Load enrichment summaries
+        file_summaries = self._load_file_summaries()
+
         # Build context from sample files
         context_lines = []
         for i, sf in enumerate(feature.sample_files[:sample_size], 1):
-            summary = sf.summary if sf.summary else "(no summary available)"
+            # Try enrichment cache first, then fall back to graph summary
+            file_path = sf.path
+            if file_path.startswith("./"):
+                file_path = file_path[2:]
+            summary = file_summaries.get(file_path) or sf.summary or "(no summary available)"
             context_lines.append(f"{i}. {sf.path} - {summary}")
 
         if not context_lines:
