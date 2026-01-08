@@ -10,36 +10,11 @@ defaults:
     working-directory: sdk/nodejs
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build
-        run: npm run build
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: sdk/nodejs/dist/
-
   publish:
-    needs: build
     runs-on: ubuntu-latest
-    environment: npm  # Optional: use environment for additional protection
     permissions:
       contents: read
-      id-token: write  # Required for OIDC trusted publishing
+      id-token: write  # Required for npm provenance
     steps:
       - uses: actions/checkout@v4
 
@@ -55,6 +30,7 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Publish to npm (trusted publishing)
-        run: npm publish --access public
-        # No NODE_AUTH_TOKEN needed - uses OIDC
+      - name: Publish to npm with provenance
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
