@@ -14,14 +14,14 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write  # Required for npm provenance
+      id-token: write  # Required for npm OIDC trusted publishing
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'  # Node 24+ includes npm 11.5.1+ required for OIDC
           registry-url: 'https://registry.npmjs.org'
 
       - name: Install dependencies
@@ -30,7 +30,7 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Publish to npm with provenance
+      - name: Publish to npm with OIDC trusted publishing
         run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        # No NODE_AUTH_TOKEN needed - uses OIDC trusted publishing
+        # Configure trusted publisher at: https://www.npmjs.com/package/@autodoc-ai/sdk/access
