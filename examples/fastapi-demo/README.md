@@ -7,6 +7,11 @@ This demo showcases autodoc's full feature set by analyzing the [FastAPI](https:
 ```bash
 # From the autodoc root directory
 cd examples/fastapi-demo
+
+# Quick mode - uses pre-computed data (no API keys needed, instant results)
+./demo.sh --quick
+
+# Full mode - runs fresh analysis (takes ~30 seconds)
 ./demo.sh
 ```
 
@@ -133,3 +138,35 @@ Available tools:
 - `pip install ai-code-autodoc`
 - (Optional) `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` for enrichment
 - (Optional) Neo4j with GDS plugin for feature detection
+
+## Neo4j Setup (Optional)
+
+For feature detection, you'll need Neo4j with the Graph Data Science (GDS) plugin:
+
+```bash
+# Start Neo4j with Docker (easiest method)
+docker run -d \
+  --name neo4j-autodoc \
+  -p 7474:7474 -p 7687:7687 \
+  -e NEO4J_AUTH=neo4j/password \
+  -e NEO4J_PLUGINS='["graph-data-science"]' \
+  neo4j:5
+
+# Set environment variables
+export NEO4J_URI=bolt://localhost:7687
+export NEO4J_PASSWORD=password
+
+# Or configure in .autodoc.yaml:
+# graph:
+#   neo4j_uri: bolt://localhost:7687
+#   neo4j_user: neo4j
+#   neo4j_password: password
+```
+
+Then run feature detection:
+```bash
+autodoc graph --clear    # Build code relationship graph
+autodoc features detect  # Detect code clusters using Louvain algorithm
+autodoc features name    # AI-powered cluster naming
+autodoc features list    # View detected features
+```
