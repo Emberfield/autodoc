@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2025-01-07
+
+### Added
+- **Auto-Feature Discovery**: Automatic code cluster detection using Neo4j Graph Data Science
+  - `features detect` - Run Louvain community detection to find code features
+  - `features name` - LLM-powered semantic naming with context-rich prompts
+  - `features list` - List all detected features with names and file counts
+  - `features show <id>` - Show all files belonging to a feature
+  - `features export` - Export features as context pack configurations
+  - God Object filtering to exclude high-degree hub files (logger, config, etc.)
+  - External library filtering (node_modules, site-packages, .venv, vendor, etc.)
+  - Graph hash-based cache invalidation for detecting stale results
+  - MCP server tools: `feature_list`, `feature_files`
+- **Landing Page**: Marketing site at autodoc.tools
+- **SDKs**: Python SDK and Node.js SDK (@autodoc-ai/sdk) for programmatic access
+- **Skill Export**: SKILL.md generation for context packs
+- **Cloud Deployment**: Cloud Run support with lightweight Docker images
+- **Trusted Publishing**: PyPI trusted publisher workflow
+
+### Changed
+- Feature detection uses File→Module←File graph relationships for accurate clustering
+- Feature naming loads enrichment cache for context-rich LLM prompts
+- Feature names are automatically slugified for valid pack name format
+- Neo4j graph includes featureId index for efficient queries
+
+### Fixed
+- Graph projection syntax for Neo4j 5 compatibility (COUNT {} vs size())
+- Lightweight Docker image permissions and import issues
+
+## [0.8.0] - 2024-12-28
+
+### Added
+- **Init Hooks**: `autodoc init-hooks` command for Git hook setup
+- **CI/CD**: GitHub Actions workflow for testing and publishing
+- **Community Files**: Contributing guidelines and issue templates
+
+### Changed
+- Improved documentation and README for public release
+
 ## [0.7.1] - 2024-12-22
 
 ### Added
