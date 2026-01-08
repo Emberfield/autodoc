@@ -55,6 +55,22 @@ autodoc features name
 autodoc features list
 ```
 
+### 6. Dashboard UI
+After analysis, the demo launches an interactive web dashboard to explore results.
+
+```bash
+# Dashboard opens automatically at http://localhost:3000
+# Or start manually:
+make dashboard
+```
+
+The dashboard shows:
+- **Overview**: Stats and summary cards
+- **Files**: Browsable file tree with enrichment indicators
+- **Entities**: Searchable list of functions and classes
+- **Packs**: Context pack details and file patterns
+- **Features**: Auto-detected code clusters
+
 ## Sample Output
 
 After running the demo, you'll have:

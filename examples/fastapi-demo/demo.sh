@@ -102,3 +102,29 @@ ${YELLOW}Next steps:${NC}
 
 ${BLUE}Learn more: https://autodoc.tools${NC}
 "
+
+# Step 9: Launch Dashboard
+print_step "Step 9: Launching Dashboard UI"
+AUTODOC_ROOT="$(cd "$DEMO_DIR/../.." && pwd)"
+DASHBOARD_DIR="$AUTODOC_ROOT/dashboard"
+
+if [ -d "$DASHBOARD_DIR" ]; then
+    print_info "Starting dashboard at http://localhost:3000"
+    print_info "Press Ctrl+C to stop the dashboard"
+    echo ""
+
+    # Check if npm dependencies are installed
+    if [ ! -d "$DASHBOARD_DIR/node_modules" ]; then
+        print_info "Installing dashboard dependencies..."
+        cd "$DASHBOARD_DIR" && npm install
+    fi
+
+    # Open browser (works on macOS, Linux with xdg-open, or Windows with start)
+    sleep 2 && (open http://localhost:3000 2>/dev/null || xdg-open http://localhost:3000 2>/dev/null || start http://localhost:3000 2>/dev/null) &
+
+    # Start the dashboard
+    cd "$DASHBOARD_DIR" && npm run dev
+else
+    print_info "Dashboard not found at $DASHBOARD_DIR"
+    print_info "Run 'make dashboard' from the autodoc root directory"
+fi
