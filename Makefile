@@ -37,6 +37,9 @@ help: ## Show this help message
 	@echo "$(YELLOW)GCP Setup Commands:$(NC)"
 	@grep -E '^(setup-gcp|configure-auth|check-config|check-published):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 	@echo ""
+	@echo "$(YELLOW)Demo Commands:$(NC)"
+	@grep -E '^(demo|demo-fastapi|demo-clean):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
+	@echo ""
 	@echo "$(YELLOW)Utility Commands:$(NC)"
 	@grep -E '^(version|info):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
@@ -312,3 +315,21 @@ dev: setup analyze ## Quick development setup
 
 dev-graph: setup-graph analyze build-graph ## Development setup with graph features
 	@echo "$(GREEN)✓ Development environment with graph features ready!$(NC)"
+
+# ========================================
+# Demo Targets
+# ========================================
+
+.PHONY: demo demo-fastapi demo-clean
+
+demo: demo-fastapi ## Run the FastAPI demo (alias)
+
+demo-fastapi: ## Run autodoc demo on FastAPI codebase
+	@echo "$(YELLOW)Running FastAPI demo...$(NC)"
+	@cd examples/fastapi-demo && ./demo.sh
+	@echo "$(GREEN)✓ Demo complete$(NC)"
+
+demo-clean: ## Clean up demo artifacts
+	@echo "$(YELLOW)Cleaning demo artifacts...$(NC)"
+	@rm -rf examples/fastapi-demo/fastapi-repo
+	@echo "$(GREEN)✓ Demo cleaned$(NC)"
