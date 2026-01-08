@@ -765,6 +765,86 @@ def get_pack_resource(name: str) -> str:
     return pack_info(name, include_dependencies=True)
 
 
+# =============================================================================
+# Feature Discovery Tools
+# =============================================================================
+
+
+@mcp.tool
+def feature_list(named_only: bool = False) -> str:
+    """List auto-detected code features.
+
+    Features are code clusters detected using graph analysis (Louvain algorithm).
+    Run 'autodoc features detect' first to detect features.
+
+    Args:
+        named_only: Only show features that have been named by LLM
+
+    Returns:
+        JSON with detected features, their IDs, names, and file counts
+    """
+    from .features import FeaturesCache
+
+    cache = FeaturesCache()
+    result = cache.load()
+
+    if not result:
+        return json.dumps({
+            "error": "No features detected. Run 'autodoc features detect' first.",
+            "features": [],
+        })
+
+    features = []
+    for fid, feature in result.features.items():
+        if named_only and not feature.name:
+            continue
+        features.append({
+            "id": fid,
+            "name": feature.name,
+            "display_name": feature.display_name,
+            "file_count": feature.file_count,
+            "sample_paths": [f.path for f in feature.sample_files[:5]],
+        })
+
+    return json.dumps({
+        "community_count": result.community_count,
+        "modularity": result.modularity,
+        "detected_at": result.detected_at,
+        "features": features,
+        "total": len(features),
+    })
+
+
+@mcp.tool
+def feature_files(feature_id: int) -> str:
+    """Get all files belonging to a detected feature.
+
+    Args:
+        feature_id: The feature ID to query
+
+    Returns:
+        JSON object with feature details and complete file list
+    """
+    from .features import FeaturesCache
+
+    cache = FeaturesCache()
+    result = cache.load()
+
+    if not result:
+        return json.dumps({
+            "error": "No features detected. Run 'autodoc features detect' first.",
+        })
+
+    if feature_id not in result.features:
+        return json.dumps({
+            "error": f"Feature {feature_id} not found",
+            "available": list(result.features.keys()),
+        })
+
+    feature = result.features[feature_id]
+    return json.dumps(feature.to_dict())
+
+
 def main():
     """Run the MCP server.
 

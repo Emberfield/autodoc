@@ -48,6 +48,13 @@ graph = [
     { name = "plotly" },
     { name = "pyvis" },
 ]
+mcp = [
+    { name = "click" },
+    { name = "fastmcp" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+    { name = "rich" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -70,7 +77,9 @@ requires-dist = [
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.12.1" },
     { name = "chromadb", specifier = ">=0.4.0" },
     { name = "click", specifier = ">=8.1.7" },
+    { name = "click", marker = "extra == 'mcp'", specifier = ">=8.1.7" },
     { name = "fastmcp", specifier = ">=2.14.1" },
+    { name = "fastmcp", marker = "extra == 'mcp'", specifier = ">=2.14.1" },
     { name = "matplotlib", marker = "extra == 'graph'", specifier = ">=3.8.0" },
     { name = "neo4j", marker = "extra == 'graph'", specifier = ">=5.15.0" },
     { name = "networkx", marker = "extra == 'graph'", specifier = ">=3.2.1" },
@@ -78,13 +87,16 @@ requires-dist = [
     { name = "openai", specifier = ">=1.6.1" },
     { name = "plotly", marker = "extra == 'graph'", specifier = ">=5.17.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
+    { name = "pydantic", marker = "extra == 'mcp'", specifier = ">=2.0.0" },
     { name = "pygithub", specifier = ">=2.1.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.3" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.1" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "pyvis", marker = "extra == 'graph'", specifier = ">=0.3.2" },
     { name = "pyyaml", specifier = ">=6.0.1" },
+    { name = "pyyaml", marker = "extra == 'mcp'", specifier = ">=6.0.1" },
     { name = "rich", specifier = ">=13.7.0" },
+    { name = "rich", marker = "extra == 'mcp'", specifier = ">=13.7.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.8" },
     { name = "sentence-transformers", specifier = ">=2.2.0" },
     { name = "tenacity", specifier = ">=8.2.0" },
@@ -92,7 +104,7 @@ requires-dist = [
     { name = "tree-sitter-languages", specifier = ">=1.10.0" },
     { name = "watchdog", specifier = ">=3.0.0" },
 ]
-provides-extras = ["dev", "graph"]
+provides-extras = ["dev", "graph", "mcp"]
 
 [package.metadata.requires-dev]
 dev = [

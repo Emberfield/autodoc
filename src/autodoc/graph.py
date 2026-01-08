@@ -137,6 +137,7 @@ class CodeGraphBuilder:
             # Create indexes
             indexes = [
                 "CREATE INDEX IF NOT EXISTS FOR (f:File) ON (f.name)",
+                "CREATE INDEX IF NOT EXISTS FOR (f:File) ON (f.featureId)",  # For feature detection
                 "CREATE INDEX IF NOT EXISTS FOR (fn:Function) ON (fn.name)",
                 "CREATE INDEX IF NOT EXISTS FOR (c:Class) ON (c.name)",
                 "CREATE INDEX IF NOT EXISTS FOR (m:Module) ON (m.name)",

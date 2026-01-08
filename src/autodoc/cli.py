@@ -3466,6 +3466,425 @@ Provide:
 
 
 # =============================================================================
+# Feature Discovery Commands
+# =============================================================================
+
+
+@cli.group()
+def features():
+    """Auto-detect code features using graph analysis.
+
+    Uses Neo4j Graph Data Science (GDS) to detect code clusters
+    using Louvain community detection, then names them semantically with LLM.
+
+    Requires:
+      1. Neo4j with GDS library installed
+      2. A built code graph (run 'autodoc graph' first)
+
+    Examples:
+      autodoc features detect              # Detect features using GDS
+      autodoc features name                # Name detected features with LLM
+      autodoc features list                # List all detected features
+      autodoc features show 0              # Show files in feature 0
+      autodoc features export              # Export as context packs
+    """
+    pass
+
+
+@features.command("detect")
+@click.option("--force", is_flag=True, help="Force re-detection even if cache exists")
+@click.option(
+    "--max-degree",
+    default=50,
+    type=int,
+    help="Max connections for a file to be included (filters 'God Objects')",
+)
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def features_detect(force, max_degree, as_json):
+    """Run GDS Louvain community detection to find code features.
+
+    This requires:
+    1. Neo4j with GDS library installed
+    2. A built code graph (run 'autodoc graph' first)
+
+    Files with more than --max-degree connections are excluded
+    (e.g., logger.py, config.py that are imported everywhere).
+
+    Results are cached in .autodoc/features_cache.json
+    """
+    from .features import FeatureDetector, FeaturesCache
+
+    if not GRAPH_AVAILABLE:
+        console.print("[red]Graph functionality not available. Install dependencies:[/red]")
+        console.print("  pip install neo4j matplotlib plotly networkx pyvis")
+        return
+
+    from .graph import GraphConfig
+    from neo4j import GraphDatabase
+
+    cache = FeaturesCache()
+
+    try:
+        config = GraphConfig.from_env()
+        driver = GraphDatabase.driver(config.uri, auth=(config.username, config.password))
+
+        # Test connection
+        with driver.session() as session:
+            session.run("RETURN 1")
+    except Exception as e:
+        console.print(f"[red]Failed to connect to Neo4j: {e}[/red]")
+        console.print("[yellow]Ensure Neo4j is running and credentials are correct.[/yellow]")
+        return
+
+    detector = FeatureDetector(driver)
+
+    # Check GDS availability
+    if not detector.check_gds_available():
+        console.print("[red]Neo4j GDS library not installed.[/red]")
+        console.print("\n[yellow]To install GDS:[/yellow]")
+        console.print("  1. Download from: https://neo4j.com/deployment-center/")
+        console.print("  2. Copy to neo4j/plugins/ directory")
+        console.print("  3. Restart Neo4j")
+        driver.close()
+        return
+
+    # Check graph exists
+    if not detector.check_graph_exists():
+        console.print("[red]No code graph found.[/red]")
+        console.print("[yellow]Run 'autodoc graph' first to build the graph.[/yellow]")
+        driver.close()
+        return
+
+    # Check cache validity
+    current_hash = detector.compute_graph_hash()
+    if not force:
+        cached = cache.load()
+        if cached:
+            if cache.is_stale(current_hash):
+                console.print("[yellow]Cache is stale (graph has changed).[/yellow]")
+                console.print("[dim]Use --force to re-run detection[/dim]\n")
+            else:
+                if as_json:
+                    console.print(json.dumps({"cached": True, **cached.to_dict()}))
+                else:
+                    console.print(f"[yellow]Using cached results from {cached.detected_at}[/yellow]")
+                    console.print(f"[dim]Use --force to re-run detection[/dim]\n")
+                    _display_detection_summary(cached)
+                driver.close()
+                return
+
+    console.print(f"[yellow]Running Louvain community detection (max_degree={max_degree})...[/yellow]")
+
+    try:
+        result = detector.detect_features(max_degree=max_degree)
+        cache.save(result)
+
+        if as_json:
+            console.print(json.dumps({"cached": False, **result.to_dict()}))
+        else:
+            console.print("[green]Feature detection complete![/green]\n")
+            _display_detection_summary(result)
+    except RuntimeError as e:
+        console.print(f"[red]Error during feature detection: {e}[/red]")
+    finally:
+        driver.close()
+
+
+def _display_detection_summary(result):
+    """Display detection results in a table."""
+    from pathlib import Path as PathLib
+
+    console.print("[bold]Detection Summary:[/bold]")
+    console.print(f"  Communities found: {result.community_count}")
+    console.print(f"  Modularity score: {result.modularity:.3f}")
+    console.print(f"  Max degree threshold: {result.max_degree_threshold}")
+    console.print()
+
+    table = Table(title="Detected Features")
+    table.add_column("ID", style="cyan")
+    table.add_column("Name", style="green")
+    table.add_column("Files", style="white", justify="right")
+    table.add_column("Sample Files", style="dim")
+
+    for fid in sorted(result.features.keys()):
+        feature = result.features[fid]
+        name_display = feature.display_name or "[dim]<unnamed>[/dim]"
+        samples = ", ".join(PathLib(f.path).name for f in feature.sample_files[:3])
+        if not samples and feature.files:
+            samples = ", ".join(PathLib(p).name for p in feature.files[:3])
+        if len(feature.sample_files) > 3 or len(feature.files) > 3:
+            samples += "..."
+
+        table.add_row(
+            str(fid),
+            name_display,
+            str(feature.file_count),
+            samples,
+        )
+
+    console.print(table)
+    console.print(f"\n[dim]Run 'autodoc features name' to generate semantic names[/dim]")
+
+
+@features.command("name")
+@click.option("--feature-id", "-f", type=int, help="Name specific feature only")
+@click.option("--force", is_flag=True, help="Re-name already named features")
+@click.option("--dry-run", is_flag=True, help="Show what would be named without calling LLM")
+def features_name(feature_id, force, dry_run):
+    """Use LLM to generate semantic names for detected features.
+
+    Names are generated based on file paths and summaries in each cluster.
+    Uses the configured LLM provider (anthropic, openai, ollama).
+    """
+    import asyncio
+    from .features import FeaturesCache, FeatureNamer
+
+    cache = FeaturesCache()
+    result = cache.load()
+
+    if not result:
+        console.print("[red]No detected features found.[/red]")
+        console.print("[yellow]Run 'autodoc features detect' first.[/yellow]")
+        return
+
+    if not result.features:
+        console.print("[yellow]No features to name.[/yellow]")
+        return
+
+    config = AutodocConfig.load()
+
+    # Check API key
+    api_key = config.llm.get_api_key()
+    if not api_key and config.llm.provider != "ollama":
+        console.print(f"[red]No API key found for {config.llm.provider}[/red]")
+        console.print("[yellow]Set via environment variable or .autodoc.yaml[/yellow]")
+        return
+
+    # Filter features to name
+    features_to_name = {}
+    for fid, feature in result.features.items():
+        if feature_id is not None and fid != feature_id:
+            continue
+        if not force and feature.name:
+            console.print(f"[dim]Skipping feature {fid} (already named: {feature.name})[/dim]")
+            continue
+        if feature.file_count == 0:
+            continue
+        features_to_name[fid] = feature
+
+    if not features_to_name:
+        console.print("[green]All features already named![/green]")
+        return
+
+    if dry_run:
+        console.print(f"[cyan]DRY RUN: Would name {len(features_to_name)} features[/cyan]")
+        for fid, feature in features_to_name.items():
+            console.print(f"  Feature {fid}: {feature.file_count} files")
+            for sf in feature.sample_files[:3]:
+                console.print(f"    - {sf.path}")
+        return
+
+    console.print(f"[yellow]Naming {len(features_to_name)} features with {config.llm.provider}...[/yellow]")
+
+    namer = FeatureNamer(config)
+
+    async def name_features():
+        for fid, feature in features_to_name.items():
+            console.print(f"[dim]Naming feature {fid}...[/dim]")
+            try:
+                naming = await namer.name_feature(feature)
+                if naming:
+                    cache.update_feature_name(
+                        fid,
+                        naming["name"],
+                        naming["display_name"],
+                        naming.get("reasoning"),
+                    )
+                    console.print(f"  [green]{fid}[/green] -> {naming['display_name']}")
+                    if naming.get("reasoning"):
+                        console.print(f"       [dim]{naming['reasoning']}[/dim]")
+                else:
+                    console.print(f"  [yellow]Feature {fid}: naming failed[/yellow]")
+            except Exception as e:
+                console.print(f"  [red]Feature {fid}: {e}[/red]")
+
+    asyncio.run(name_features())
+    console.print("\n[green]Feature naming complete![/green]")
+
+
+@features.command("list")
+@click.option("--named-only", is_flag=True, help="Show only named features")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def features_list(named_only, as_json):
+    """List all detected features."""
+    from .features import FeaturesCache
+
+    cache = FeaturesCache()
+    result = cache.load()
+
+    if not result:
+        if as_json:
+            console.print(json.dumps({"error": "No features detected", "features": []}))
+        else:
+            console.print("[yellow]No detected features found.[/yellow]")
+            console.print("[dim]Run 'autodoc features detect' first.[/dim]")
+        return
+
+    features_data = []
+    for fid in sorted(result.features.keys()):
+        feature = result.features[fid]
+        if named_only and not feature.name:
+            continue
+        features_data.append({
+            "id": fid,
+            "name": feature.name,
+            "display_name": feature.display_name,
+            "file_count": feature.file_count,
+            "named": feature.name is not None,
+        })
+
+    if as_json:
+        console.print(json.dumps({
+            "community_count": result.community_count,
+            "modularity": result.modularity,
+            "detected_at": result.detected_at,
+            "features": features_data,
+        }))
+        return
+
+    _display_detection_summary(result)
+
+
+@features.command("show")
+@click.argument("feature_id", type=int)
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def features_show(feature_id, as_json):
+    """Show all files belonging to a specific feature."""
+    from .features import FeaturesCache
+
+    cache = FeaturesCache()
+    result = cache.load()
+
+    if not result:
+        console.print("[red]No detected features found.[/red]")
+        return
+
+    if feature_id not in result.features:
+        console.print(f"[red]Feature {feature_id} not found.[/red]")
+        console.print(f"[dim]Available: {list(result.features.keys())}[/dim]")
+        return
+
+    feature = result.features[feature_id]
+
+    if as_json:
+        console.print(json.dumps(feature.to_dict()))
+        return
+
+    name_display = feature.display_name or f"Feature {feature_id}"
+    console.print(f"\n[bold]{name_display}[/bold]")
+    if feature.name:
+        console.print(f"[dim]({feature.name})[/dim]")
+    if feature.reasoning:
+        console.print(f"\n{feature.reasoning}\n")
+
+    console.print(f"[bold]Files ({feature.file_count}):[/bold]")
+    for path in sorted(feature.files):
+        console.print(f"  - {path}")
+
+
+@features.command("export")
+@click.option("--min-files", default=2, help="Minimum files for export (default: 2)")
+@click.option("--save", is_flag=True, help="Append to .autodoc.yaml")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def features_export(min_files, save, as_json):
+    """Export detected features as context packs.
+
+    Converts named features to ContextPackConfig format that can be
+    added to .autodoc.yaml for use with 'autodoc pack' commands.
+    """
+    from pathlib import Path as PathLib
+    from .features import FeaturesCache
+    from .config import ContextPackConfig
+
+    cache = FeaturesCache()
+    result = cache.load()
+
+    if not result:
+        console.print("[red]No detected features found.[/red]")
+        return
+
+    # Build context pack configs for named features
+    packs = []
+    for fid, feature in result.features.items():
+        if not feature.name:
+            continue
+        if feature.file_count < min_files:
+            continue
+
+        # Convert file list to glob patterns
+        # Group by directory and create patterns
+        dirs = {}
+        for path in feature.files:
+            p = PathLib(path)
+            dir_key = str(p.parent)
+            if dir_key not in dirs:
+                dirs[dir_key] = []
+            dirs[dir_key].append(p.suffix or ".py")
+
+        # Create patterns like "src/auth/**/*.py"
+        patterns = []
+        for dir_path, extensions in dirs.items():
+            ext = extensions[0] if len(set(extensions)) == 1 else "*"
+            pattern = f"{dir_path}/**/*{ext}"
+            patterns.append(pattern)
+
+        pack_config = ContextPackConfig(
+            name=feature.name,
+            display_name=feature.display_name or feature.name.replace("-", " ").title(),
+            description=feature.reasoning or f"Auto-detected feature containing {feature.file_count} files",
+            files=patterns,
+            tags=["auto-detected"],
+        )
+        packs.append(pack_config)
+
+    if not packs:
+        console.print("[yellow]No named features to export.[/yellow]")
+        console.print("[dim]Run 'autodoc features name' first.[/dim]")
+        return
+
+    if as_json:
+        console.print(json.dumps([p.model_dump() for p in packs], indent=2))
+        return
+
+    # Display packs
+    console.print(f"\n[bold]Exportable Context Packs ({len(packs)}):[/bold]\n")
+    for pack in packs:
+        console.print(f"[cyan]{pack.name}[/cyan]: {pack.display_name}")
+        console.print(f"  {pack.description}")
+        console.print(f"  Files: {pack.files}")
+        console.print()
+
+    if save:
+        config = AutodocConfig.load()
+        existing_names = {p.name for p in config.context_packs}
+
+        added = 0
+        for pack in packs:
+            if pack.name not in existing_names:
+                config.context_packs.append(pack)
+                added += 1
+                console.print(f"[green]Added: {pack.name}[/green]")
+            else:
+                console.print(f"[yellow]Skipped (exists): {pack.name}[/yellow]")
+
+        if added > 0:
+            config.save()
+            console.print(f"\n[green]Saved {added} pack(s) to .autodoc.yaml[/green]")
+    else:
+        console.print("[dim]Use --save to append to .autodoc.yaml[/dim]")
+
+
+# =============================================================================
 # MCP Server Command
 # =============================================================================
 
