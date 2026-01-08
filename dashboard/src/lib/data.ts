@@ -71,6 +71,11 @@ export interface FeaturesCache {
 
 // Data loading functions
 export function getProjectRoot(): string {
+  // Check for explicit project root from environment variable
+  if (process.env.AUTODOC_PROJECT_ROOT) {
+    return process.env.AUTODOC_PROJECT_ROOT;
+  }
+
   // Look for .autodoc.yaml or autodoc_cache.json to find project root
   let dir = process.cwd();
   while (dir !== "/") {

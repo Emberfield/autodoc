@@ -1849,7 +1849,7 @@ def pack_list(tag, security, as_json):
             console.print("[]")
         else:
             console.print("[yellow]No context packs configured.[/yellow]")
-            console.print("\nAdd packs to your autodoc.yaml:")
+            console.print("\nAdd packs to your .autodoc.yaml:")
             example = """[dim]context_packs:
   - name: authentication
     display_name: Authentication System
@@ -2145,7 +2145,7 @@ def pack_build(name, build_all, output, embeddings, summary, dry_run, no_cache):
                         f"    [yellow]⚠ Large pack ({len(entities_in_pack)} entities) - consider using a smaller model[/yellow]"
                     )
                     console.print(
-                        "    [dim]Tip: Configure llm.model in autodoc.yaml (e.g., claude-3-haiku-20240307, gpt-4o-mini)[/dim]"
+                        "    [dim]Tip: Configure llm.model in .autodoc.yaml (e.g., claude-3-haiku-20240307, gpt-4o-mini)[/dim]"
                     )
 
             continue  # Skip to next pack in dry-run mode
@@ -2430,7 +2430,7 @@ def pack_query(name, query, limit, keyword, output_json):
 
 
 @pack.command("auto-generate")
-@click.option("--save", is_flag=True, help="Save generated packs to autodoc.yaml")
+@click.option("--save", is_flag=True, help="Save generated packs to .autodoc.yaml")
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON for programmatic use")
 @click.option("--min-files", default=3, help="Minimum files for a pack (default: 3)")
 @click.option(
@@ -2447,7 +2447,7 @@ def pack_auto_generate(save, output_json, min_files, root_path):
     - Language markers (setup.py, package.json, go.mod, Cargo.toml)
     - Framework patterns (Django apps, FastAPI routers, React components)
 
-    Use --save to append suggested packs to autodoc.yaml.
+    Use --save to append suggested packs to .autodoc.yaml.
     Use --json for programmatic output (e.g., Temporal workflows).
     Use --root to specify a different base directory (useful in Docker/CI).
     """
@@ -2750,7 +2750,7 @@ def pack_auto_generate(save, output_json, min_files, root_path):
             console.print(
                 "[yellow]No pack suggestions found. Your codebase may need custom pack definitions.[/yellow]"
             )
-            console.print("[dim]Define packs in autodoc.yaml under 'context_packs:'[/dim]")
+            console.print("[dim]Define packs in .autodoc.yaml under 'context_packs:'[/dim]")
         return
 
     # Remove duplicates by name
@@ -2785,11 +2785,16 @@ def pack_auto_generate(save, output_json, min_files, root_path):
 
     # Save to config if requested
     if save:
-        config_path = PathLib.cwd() / "autodoc.yaml"
-        if not config_path.exists():
+        # Check for existing config file in priority order
+        config_path = None
+        for filename in [".autodoc.yml", ".autodoc.yaml", "autodoc.yml", "autodoc.yaml"]:
+            candidate = PathLib.cwd() / filename
+            if candidate.exists():
+                config_path = candidate
+                break
+        # Default to .autodoc.yaml if no config exists
+        if not config_path:
             config_path = PathLib.cwd() / ".autodoc.yaml"
-            if not config_path.exists():
-                config_path = PathLib.cwd() / "autodoc.yaml"
 
         # Create ContextPackConfig objects
         new_packs = []
@@ -2811,7 +2816,7 @@ def pack_auto_generate(save, output_json, min_files, root_path):
         console.print(f"[green]✓ Saved {len(new_packs)} pack(s) to {config_path}[/green]")
         console.print("[dim]Run 'autodoc pack list' to see all packs[/dim]")
     else:
-        console.print("[dim]Use --save to add these packs to your autodoc.yaml[/dim]")
+        console.print("[dim]Use --save to add these packs to your .autodoc.yaml[/dim]")
 
 
 # =============================================================================
@@ -3310,7 +3315,7 @@ def pack_export_skill(
         if output_json:
             print(json.dumps({"error": "No context packs defined"}))
         else:
-            console.print("[yellow]No context packs defined in autodoc.yaml[/yellow]")
+            console.print("[yellow]No context packs defined in .autodoc.yaml[/yellow]")
         return
 
     # Determine packs to export

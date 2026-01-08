@@ -1,0 +1,15 @@
+context_packs:
+- name: tests
+  display_name: Test Suite
+  description: Test files and fixtures
+  files:
+  - tests/**/*.py
+  tags:
+  - tests
+- name: scripts
+  display_name: Scripts
+  description: Utility and automation scripts
+  files:
+  - scripts/**/*.py
+  tags:
+  - tools

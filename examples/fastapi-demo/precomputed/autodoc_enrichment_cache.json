@@ -1,0 +1,131 @@
+{
+  "fastapi/params.py:Path:138": {
+    "description": "Declares a path parameter for FastAPI route endpoints. Path parameters are extracted from the URL path and passed to the endpoint function with automatic type conversion and validation.",
+    "summary": "Path parameter declaration for URL path segments",
+    "purpose": "Enable declarative path parameter extraction with validation",
+    "key_features": ["Type conversion", "Validation", "OpenAPI documentation", "Default values"],
+    "usage_examples": [
+      "@app.get(\"/items/{item_id}\")\nasync def read_item(item_id: int = Path(..., title=\"Item ID\", ge=1)):\n    return {\"item_id\": item_id}"
+    ],
+    "enriched_at": "2025-01-08T10:00:00Z"
+  },
+  "fastapi/params.py:Query:222": {
+    "description": "Declares a query parameter for FastAPI route endpoints. Query parameters are URL parameters after the ? mark. Provides validation, type conversion, default values, and automatic OpenAPI documentation.",
+    "summary": "Query parameter declaration for URL query strings",
+    "purpose": "Enable declarative query parameter extraction with validation",
+    "key_features": ["Type validation", "Default values", "OpenAPI docs", "Optional parameters"],
+    "usage_examples": [
+      "@app.get(\"/items\")\nasync def list_items(skip: int = Query(0, ge=0), limit: int = Query(10, le=100)):\n    return items[skip:skip+limit]"
+    ],
+    "enriched_at": "2025-01-08T10:00:00Z"
+  },
+  "fastapi/params.py:Header:304": {
+    "description": "Declares an HTTP header parameter for FastAPI endpoints. Automatically converts header names from snake_case to HTTP header format. Useful for authentication tokens, content negotiation, and custom header extraction.",
+    "summary": "HTTP header parameter extraction",
+    "purpose": "Extract values from HTTP request headers",
+    "key_features": ["Auto case conversion", "Authentication support", "Custom headers"],
+    "usage_examples": [
+      "@app.get(\"/protected\")\nasync def protected(authorization: str = Header(...)):\n    return {\"token\": authorization}"
+    ],
+    "enriched_at": "2025-01-08T10:00:00Z"
+  },
+  "fastapi/params.py:Cookie:384": {
+    "description": "Declares a cookie parameter for FastAPI endpoints. Extracts values from HTTP cookies with automatic type conversion and validation support.",
+    "summary": "HTTP cookie parameter extraction",
+    "purpose": "Extract and validate cookie values from requests",
+    "key_features": ["Type conversion", "Validation", "Session handling"],
+    "enriched_at": "2025-01-08T10:00:00Z"
+  },
+  "fastapi/params.py:Body:463": {
+    "description": "Declares a request body parameter for FastAPI endpoints. Used for extracting JSON data from POST/PUT requests with Pydantic validation.",
+    "summary": "Request body parameter declaration",
+    "purpose": "Extract and validate request body data",
+    "key_features": ["JSON parsing", "Pydantic validation", "Nested models", "Media type support"],
+    "enriched_at": "2025-01-08T10:00:00Z"
+  },
+  "fastapi/applications.py:FastAPI:44": {
+    "description": "The main FastAPI application class for building modern APIs. Provides automatic OpenAPI documentation, request validation, dependency injection, and high performance through async support. Built on Starlette for web handling and Pydantic for data validation.",
+    "summary": "Main FastAPI application class",
+    "purpose": "Create high-performance API applications with automatic documentation",
+    "key_features": ["OpenAPI/Swagger", "Async support", "Dependency injection", "Type validation", "Automatic docs"],
+    "usage_examples": [
+      "from fastapi import FastAPI\n\napp = FastAPI(title=\"My API\", version=\"1.0.0\")\n\n@app.get(\"/\")\nasync def root():\n    return {\"message\": \"Hello World\"}"
+    ],
+    "enriched_at": "2025-01-08T10:00:00Z"
+  },
+  "fastapi/routing.py:APIRouter:473": {
+    "description": "Groups related routes together for modular API organization. Allows organizing your API into logical modules that can be included in the main FastAPI application. Supports prefix paths, tags, dependencies, and response overrides.",
+    "summary": "Route grouping for modular API design",
+    "purpose": "Organize related endpoints into reusable modules",
+    "key_features": ["Route prefixing", "Tag grouping", "Shared dependencies", "Response customization"],
+    "usage_examples": [
+      "router = APIRouter(prefix=\"/users\", tags=[\"users\"])\n\n@router.get(\"/{user_id}\")\nasync def get_user(user_id: int):\n    return {\"user_id\": user_id}\n\napp.include_router(router)"
+    ],
+    "enriched_at": "2025-01-08T10:00:00Z"
+  },
+  "fastapi/routing.py:APIRoute:199": {
+    "description": "Represents a single API endpoint route definition. Handles request processing, dependency injection, validation, and response serialization. Most users interact with routes through decorators (@app.get, @app.post) rather than directly.",
+    "summary": "Individual route endpoint definition",
+    "purpose": "Internal representation of API endpoints",
+    "key_features": ["Request handling", "Response serialization", "Dependency resolution"],
+    "enriched_at": "2025-01-08T10:00:00Z"
+  },
+  "fastapi/exception_handlers.py:http_exception_handler:11": {
+    "description": "Default handler for HTTP exceptions in FastAPI. Converts HTTPException instances into proper JSON error responses with appropriate status codes. Can be overridden for custom error formatting.",
+    "summary": "Default HTTP exception response handler",
+    "purpose": "Convert exceptions to JSON error responses",
+    "key_features": ["Error formatting", "Status code handling", "Customizable"],
+    "usage_examples": [
+      "raise HTTPException(status_code=404, detail=\"Item not found\")"
+    ],
+    "enriched_at": "2025-01-08T10:00:00Z"
+  },
+  "fastapi/exception_handlers.py:request_validation_exception_handler:22": {
+    "description": "Handler for request validation errors. Formats Pydantic validation errors into user-friendly JSON responses with detailed field-level error messages.",
+    "summary": "Validation error response handler",
+    "purpose": "Format validation errors for API responses",
+    "key_features": ["Field-level errors", "User-friendly messages", "422 status code"],
+    "enriched_at": "2025-01-08T10:00:00Z"
+  },
+  "fastapi/security/oauth2.py:OAuth2PasswordBearer:156": {
+    "description": "OAuth2 password flow authentication for token-based auth. Extracts bearer tokens from the Authorization header and integrates with OpenAPI documentation. Use with a dependency to protect routes.",
+    "summary": "OAuth2 bearer token authentication",
+    "purpose": "Implement token-based API authentication",
+    "key_features": ["Bearer token extraction", "OpenAPI integration", "Dependency injection"],
+    "usage_examples": [
+      "oauth2_scheme = OAuth2PasswordBearer(tokenUrl=\"token\")\n\n@app.get(\"/protected\")\nasync def protected(token: str = Depends(oauth2_scheme)):\n    return {\"token\": token}"
+    ],
+    "enriched_at": "2025-01-08T10:00:00Z"
+  },
+  "fastapi/security/oauth2.py:OAuth2PasswordRequestForm:59": {
+    "description": "Form data class for OAuth2 password grant requests. Provides username, password, scope, and other standard OAuth2 fields for login endpoints.",
+    "summary": "OAuth2 login form data model",
+    "purpose": "Parse OAuth2 password grant login requests",
+    "key_features": ["Username/password", "Scope handling", "Grant type validation"],
+    "enriched_at": "2025-01-08T10:00:00Z"
+  },
+  "fastapi/responses.py:JSONResponse:10": {
+    "description": "JSON response class for returning JSON data. Serializes Python objects to JSON and sets the appropriate Content-Type header. Supports custom status codes, headers, and media types.",
+    "summary": "JSON response class",
+    "purpose": "Return JSON-formatted API responses",
+    "key_features": ["Auto-serialization", "Custom headers", "Status codes"],
+    "usage_examples": [
+      "return JSONResponse(content={\"message\": \"success\"}, status_code=201)"
+    ],
+    "enriched_at": "2025-01-08T10:00:00Z"
+  },
+  "fastapi/responses.py:HTMLResponse:12": {
+    "description": "HTML response class for returning HTML content. Sets the Content-Type to text/html. Useful for serving HTML pages or templates.",
+    "summary": "HTML content response class",
+    "purpose": "Return HTML-formatted responses",
+    "key_features": ["HTML content type", "Template rendering support"],
+    "enriched_at": "2025-01-08T10:00:00Z"
+  },
+  "fastapi/encoders.py:jsonable_encoder:33": {
+    "description": "Converts Python objects to JSON-serializable format. Handles Pydantic models, datetime objects, UUIDs, and other complex types. Essential for preparing data for JSON responses.",
+    "summary": "Object to JSON-serializable converter",
+    "purpose": "Convert complex Python objects for JSON serialization",
+    "key_features": ["Pydantic support", "Datetime handling", "Custom encoders", "Recursive conversion"],
+    "enriched_at": "2025-01-08T10:00:00Z"
+  }
+}
