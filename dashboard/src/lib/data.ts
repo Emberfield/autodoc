@@ -10,10 +10,14 @@ export interface CodeEntity {
   end_line?: number;
   docstring?: string;
   signature?: string;
+  code?: string; // Full code signature like "def func(a: int, b: str) -> bool:"
   decorators?: string[];
   parent_class?: string;
   parameters?: Array<{ name: string; type?: string; default?: string }>;
   return_type?: string;
+  response_type?: string;
+  external_calls?: string[];
+  is_internal?: boolean;
 }
 
 export interface AnalysisCache {
@@ -26,9 +30,12 @@ export interface EnrichmentData {
   [key: string]: {
     summary?: string;
     description?: string;
+    purpose?: string;
     parameters?: Array<{ name: string; description: string }>;
     returns?: string;
     examples?: string[];
+    usage_examples?: string[];
+    key_features?: string[];
     enriched_at?: string;
   };
 }

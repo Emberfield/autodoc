@@ -149,8 +149,8 @@ export function EntitiesPageClient({ entities, enrichment }: EntitiesPageClientP
           return (
             <Card
               key={entityKey}
-              className={`transition-colors ${hasEnrichment ? "hover:border-primary/50 cursor-pointer" : ""}`}
-              onClick={() => hasEnrichment && setExpandedEntity(isExpanded ? null : entityKey)}
+              className="transition-colors hover:border-primary/50 cursor-pointer"
+              onClick={() => setExpandedEntity(isExpanded ? null : entityKey)}
             >
               <CardContent className="py-4">
                 <div className="flex items-start gap-3">
@@ -193,10 +193,18 @@ export function EntitiesPageClient({ entities, enrichment }: EntitiesPageClientP
                         "No description available"}
                     </p>
 
+                    {/* Signature - always show if available */}
+                    {entity.code && entity.code !== `${entity.type} ${entity.name}` && (
+                      <code className="text-xs bg-muted px-2 py-1 rounded block mt-2 overflow-x-auto font-mono text-muted-foreground">
+                        {entity.code}
+                      </code>
+                    )}
+
                     {/* Expanded Content */}
-                    {isExpanded && enrichmentData && (
+                    {isExpanded && (
                       <div className="mt-4 pt-4 border-t space-y-4">
-                        {enrichmentData.description && (
+                        {/* Description */}
+                        {enrichmentData?.description && (
                           <div>
                             <h4 className="text-sm font-medium mb-1">Description</h4>
                             <p className="text-sm text-muted-foreground">
@@ -205,7 +213,22 @@ export function EntitiesPageClient({ entities, enrichment }: EntitiesPageClientP
                           </div>
                         )}
 
-                        {enrichmentData.parameters && enrichmentData.parameters.length > 0 && (
+                        {/* Key Features */}
+                        {enrichmentData?.key_features && enrichmentData.key_features.length > 0 && (
+                          <div>
+                            <h4 className="text-sm font-medium mb-2">Key Features</h4>
+                            <div className="flex flex-wrap gap-2">
+                              {enrichmentData.key_features.map((feature, j) => (
+                                <Badge key={j} variant="secondary" className="text-xs">
+                                  {feature}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Parameters from enrichment */}
+                        {enrichmentData?.parameters && enrichmentData.parameters.length > 0 && (
                           <div>
                             <h4 className="text-sm font-medium mb-2">Parameters</h4>
                             <div className="space-y-2">
@@ -223,42 +246,77 @@ export function EntitiesPageClient({ entities, enrichment }: EntitiesPageClientP
                           </div>
                         )}
 
-                        {enrichmentData.returns && (
+                        {/* Entity parameters (from AST) */}
+                        {!enrichmentData?.parameters && entity.parameters && entity.parameters.length > 0 && (
+                          <div>
+                            <h4 className="text-sm font-medium mb-2">Parameters</h4>
+                            <div className="space-y-1">
+                              {entity.parameters.map((param, j) => (
+                                <div key={j} className="text-sm font-mono">
+                                  <code className="bg-muted px-1 rounded">{param.name}</code>
+                                  {param.type && (
+                                    <span className="text-primary ml-1">: {param.type}</span>
+                                  )}
+                                  {param.default && (
+                                    <span className="text-muted-foreground ml-1">= {param.default}</span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Return type */}
+                        {(enrichmentData?.returns || entity.return_type) && (
                           <div>
                             <h4 className="text-sm font-medium mb-1">Returns</h4>
-                            <p className="text-sm text-muted-foreground">
-                              {enrichmentData.returns}
+                            <p className="text-sm text-muted-foreground font-mono">
+                              {entity.return_type && <span className="text-primary">{entity.return_type}</span>}
+                              {enrichmentData?.returns && <span className="ml-2">{enrichmentData.returns}</span>}
                             </p>
                           </div>
                         )}
 
-                        {enrichmentData.examples && enrichmentData.examples.length > 0 && (
+                        {/* Usage Examples */}
+                        {(enrichmentData?.usage_examples || enrichmentData?.examples)?.length > 0 && (
                           <div>
-                            <h4 className="text-sm font-medium mb-2">Examples</h4>
-                            {enrichmentData.examples.map((example, j) => (
+                            <h4 className="text-sm font-medium mb-2">Usage Example</h4>
+                            {(enrichmentData.usage_examples || enrichmentData.examples)?.map((example, j) => (
                               <pre
                                 key={j}
-                                className="text-sm bg-muted p-3 rounded-lg overflow-x-auto font-mono"
+                                className="text-xs bg-muted p-3 rounded-lg overflow-x-auto font-mono"
                               >
                                 {example}
                               </pre>
                             ))}
                           </div>
                         )}
+
+                        {/* Decorators */}
+                        {entity.decorators && entity.decorators.length > 0 && (
+                          <div>
+                            <h4 className="text-sm font-medium mb-2">Decorators</h4>
+                            <div className="flex flex-wrap gap-1">
+                              {entity.decorators.map((dec, j) => (
+                                <code key={j} className="text-xs bg-muted px-2 py-1 rounded font-mono">
+                                  @{dec}
+                                </code>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
 
-                  {/* Expand Indicator */}
-                  {hasEnrichment && (
-                    <div className="text-muted-foreground">
-                      {isExpanded ? (
-                        <ChevronDown className="h-5 w-5" />
-                      ) : (
-                        <ChevronRight className="h-5 w-5" />
-                      )}
-                    </div>
-                  )}
+                  {/* Expand Indicator - always show for any entity with details */}
+                  <div className="text-muted-foreground">
+                    {isExpanded ? (
+                      <ChevronDown className="h-5 w-5" />
+                    ) : (
+                      <ChevronRight className="h-5 w-5" />
+                    )}
+                  </div>
                 </div>
               </CardContent>
             </Card>
