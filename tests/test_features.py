@@ -2,24 +2,21 @@
 Tests for feature discovery functionality.
 """
 
-import json
-import os
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock
 
 import pytest
 
 try:
     from autodoc.features import (
         DetectedFeature,
+        EXCLUDED_PATH_PATTERNS,
         FeatureDetectionResult,
         FeatureDetector,
-        FeaturesCache,
         FeatureNamer,
+        FeaturesCache,
         SampleFile,
-        DEFAULT_MAX_DEGREE,
-        EXCLUDED_PATH_PATTERNS,
     )
 
     FEATURES_AVAILABLE = True
