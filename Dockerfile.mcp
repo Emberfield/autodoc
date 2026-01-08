@@ -24,6 +24,7 @@ COPY src/autodoc/__about__.py /app/src/autodoc/
 COPY src/autodoc/config.py /app/src/autodoc/
 COPY src/autodoc/mcp_server.py /app/src/autodoc/
 COPY src/autodoc/skill_generator.py /app/src/autodoc/
+COPY src/autodoc/features.py /app/src/autodoc/
 
 # Create minimal __init__.py (avoid importing heavy sdk module)
 RUN echo 'from autodoc.__about__ import __version__' > /app/src/autodoc/__init__.py

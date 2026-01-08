@@ -11,10 +11,11 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from neo4j import Driver
-from neo4j.exceptions import ClientError, DatabaseError
+# Lazy import neo4j - only needed for FeatureDetector, not FeaturesCache
+if TYPE_CHECKING:
+    from neo4j import Driver
 
 log = logging.getLogger(__name__)
 
@@ -140,7 +141,12 @@ class FeatureDetectionResult:
 class FeatureDetector:
     """Detects code features using Neo4j GDS Louvain community detection."""
 
-    def __init__(self, driver: Driver):
+    def __init__(self, driver: "Driver"):
+        # Import neo4j exceptions at runtime
+        from neo4j.exceptions import ClientError, DatabaseError
+
+        self._ClientError = ClientError
+        self._DatabaseError = DatabaseError
         self.driver = driver
         self._gds_available: Optional[bool] = None
 
@@ -157,7 +163,7 @@ class FeatureDetector:
                     log.info(f"GDS version: {record['version']}")
                     self._gds_available = True
                     return True
-        except (ClientError, DatabaseError) as e:
+        except (self._ClientError, self._DatabaseError) as e:
             log.warning(f"GDS not available: {e}")
             self._gds_available = False
 
@@ -212,7 +218,7 @@ class FeatureDetector:
             try:
                 session.run(f"CALL gds.graph.drop('{projection_name}', false)")
                 log.debug(f"Dropped existing projection '{projection_name}'")
-            except (ClientError, DatabaseError):
+            except (self._ClientError, self._DatabaseError):
                 pass  # Graph didn't exist, that's fine
 
             # Step 2: Create Cypher-based projection excluding high-degree nodes
@@ -279,7 +285,7 @@ class FeatureDetector:
                     f"{proj_record['relationshipCount']} relationships "
                     f"(filtered files with >{max_degree} connections)"
                 )
-            except (ClientError, DatabaseError) as e:
+            except (self._ClientError, self._DatabaseError) as e:
                 raise RuntimeError(f"Failed to create graph projection: {e}")
 
             # Step 3: Run Louvain community detection
@@ -302,7 +308,7 @@ class FeatureDetector:
                 ran_levels = louvain_record["ranLevels"]
 
                 log.info(f"Detected {community_count} communities with modularity {modularity:.3f}")
-            except (ClientError, DatabaseError) as e:
+            except (self._ClientError, self._DatabaseError) as e:
                 raise RuntimeError(f"Failed to run Louvain algorithm: {e}")
 
             # Step 4: Query detected features with context (excluding external libraries)
@@ -338,7 +344,7 @@ class FeatureDetector:
             # Step 5: Clean up projection
             try:
                 session.run(f"CALL gds.graph.drop('{projection_name}')")
-            except (ClientError, DatabaseError) as e:
+            except (self._ClientError, self._DatabaseError) as e:
                 log.warning(f"Could not drop projection: {e}")
 
             return FeatureDetectionResult(
