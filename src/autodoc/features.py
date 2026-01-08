@@ -7,6 +7,7 @@ Detects code clusters using Louvain community detection and names them semantica
 import hashlib
 import json
 import logging
+import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -241,12 +242,15 @@ class FeatureDetector:
                 [f"NOT t.path CONTAINS '{pattern}'" for pattern in EXCLUDED_PATH_PATTERNS]
             )
 
+            # Connect files that share module imports (File -> Module <- File)
+            # This captures the actual dependency structure in the codebase
             rel_query = f"""
-            MATCH (s:File)-[:IMPORTS]-(t:File)
-            WHERE COUNT {{ (s)--() }} < {max_degree} AND COUNT {{ (t)--() }} < {max_degree}
+            MATCH (s:File)-[:IMPORTS]->(m:Module)<-[:IMPORTS]-(t:File)
+            WHERE s <> t
+              AND COUNT {{ (s)--() }} < {max_degree} AND COUNT {{ (t)--() }} < {max_degree}
               AND {src_exclusions}
               AND {tgt_exclusions}
-            RETURN id(s) as source, id(t) as target
+            RETURN DISTINCT id(s) as source, id(t) as target
             """
 
             try:
@@ -510,11 +514,19 @@ Respond in JSON:
                     return None
 
             if response:
+                # Get display name, preferring explicit display_name over name
+                display_name = response.get("display_name") or response.get("name") or f"Feature {feature.id}"
+
+                # Create slug from display_name (ensure valid pack name format)
+                slug = response.get("name", display_name)
+                # Convert to lowercase, replace spaces/special chars with hyphens
+                slug = re.sub(r'[^a-zA-Z0-9]+', '-', slug.lower()).strip('-')
+                if not slug:
+                    slug = f"feature-{feature.id}"
+
                 return {
-                    "name": response.get("name", f"feature-{feature.id}"),
-                    "display_name": response.get(
-                        "display_name", f"Feature {feature.id}"
-                    ),
+                    "name": slug,
+                    "display_name": display_name,
                     "reasoning": response.get("reasoning"),
                 }
         except Exception as e:
