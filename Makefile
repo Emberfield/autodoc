@@ -40,6 +40,9 @@ help: ## Show this help message
 	@echo "$(YELLOW)Demo Commands:$(NC)"
 	@grep -E '^(demo|demo-fastapi|demo-clean):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 	@echo ""
+	@echo "$(YELLOW)Dashboard Commands:$(NC)"
+	@grep -E '^(dashboard|dashboard-dev|dashboard-build|dashboard-start):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
+	@echo ""
 	@echo "$(YELLOW)Utility Commands:$(NC)"
 	@grep -E '^(version|info):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
@@ -333,3 +336,24 @@ demo-clean: ## Clean up demo artifacts
 	@echo "$(YELLOW)Cleaning demo artifacts...$(NC)"
 	@rm -rf examples/fastapi-demo/fastapi-repo
 	@echo "$(GREEN)✓ Demo cleaned$(NC)"
+
+# ========================================
+# Dashboard Targets
+# ========================================
+
+.PHONY: dashboard dashboard-dev dashboard-build
+
+dashboard: dashboard-dev ## Start the dashboard (alias)
+
+dashboard-dev: ## Start dashboard in development mode
+	@echo "$(YELLOW)Starting dashboard...$(NC)"
+	@echo "$(GREEN)Dashboard available at http://localhost:3000$(NC)"
+	@cd dashboard && npm run dev
+
+dashboard-build: ## Build dashboard for production
+	@echo "$(YELLOW)Building dashboard...$(NC)"
+	@cd dashboard && npm run build
+	@echo "$(GREEN)✓ Dashboard built$(NC)"
+
+dashboard-start: dashboard-build ## Build and start dashboard in production mode
+	@cd dashboard && npm start
