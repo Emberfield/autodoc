@@ -863,6 +863,509 @@ def feature_files(feature_id: int) -> str:
     return json.dumps(feature.to_dict())
 
 
+# =============================================================================
+# Core Analysis Tools
+# =============================================================================
+
+
+@mcp.tool
+def analyze(
+    path: str = ".",
+    save: bool = True,
+    incremental: bool = False,
+) -> str:
+    """Analyze a codebase to extract code entities (functions, classes, methods).
+
+    This is the primary analysis command that parses source files and extracts
+    structured information about the code.
+
+    Args:
+        path: Path to the codebase to analyze (default: current directory)
+        save: Save results to autodoc_cache.json
+        incremental: Only analyze changed files
+
+    Returns:
+        JSON with analysis results including entity counts and file statistics
+    """
+    import asyncio
+
+    try:
+        from .autodoc import SimpleAutodoc
+    except ImportError:
+        return json.dumps({
+            "error": "Full autodoc not available in lightweight mode",
+            "hint": "Use the full autodoc installation for analysis"
+        })
+
+    config = get_config()
+    autodoc = SimpleAutodoc(config)
+
+    try:
+        result = asyncio.get_event_loop().run_until_complete(
+            autodoc.analyze_directory(Path(path), incremental=incremental)
+        )
+
+        if save:
+            cache_path = Path(path) / "autodoc_cache.json"
+            autodoc.save(str(cache_path))
+
+        return json.dumps({
+            "success": True,
+            "path": path,
+            "files_analyzed": result.get("files_analyzed", 0),
+            "total_entities": result.get("total_entities", 0),
+            "functions": result.get("functions", 0),
+            "classes": result.get("classes", 0),
+            "methods": result.get("methods", 0),
+            "has_embeddings": result.get("has_embeddings", False),
+            "cache_saved": save,
+        })
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool
+def search(
+    query: str,
+    limit: int = 10,
+    type_filter: Optional[str] = None,
+) -> str:
+    """Search the codebase with natural language or keywords.
+
+    Uses semantic search if embeddings are available, otherwise falls back
+    to keyword matching.
+
+    Args:
+        query: Search query (natural language or keywords)
+        limit: Maximum number of results (default 10)
+        type_filter: Filter by entity type (function, class, method)
+
+    Returns:
+        JSON array of matching code entities with similarity scores
+    """
+    import asyncio
+
+    # Try to load from cache
+    cache_path = Path("autodoc_cache.json")
+    if not cache_path.exists():
+        return json.dumps({
+            "error": "No analysis cache found",
+            "hint": "Run 'analyze' first to analyze the codebase"
+        })
+
+    try:
+        from .autodoc import SimpleAutodoc
+    except ImportError:
+        return json.dumps({
+            "error": "Full autodoc not available in lightweight mode",
+            "hint": "Use the full autodoc installation for search"
+        })
+
+    config = get_config()
+    autodoc = SimpleAutodoc(config)
+    autodoc.load(str(cache_path))
+
+    try:
+        results = asyncio.get_event_loop().run_until_complete(
+            autodoc.search(query, limit=limit, type_filter=type_filter)
+        )
+
+        formatted = []
+        for r in results:
+            entity = r.get("entity", {})
+            formatted.append({
+                "name": entity.get("name"),
+                "type": entity.get("type"),
+                "file_path": entity.get("file_path"),
+                "line_number": entity.get("line_number"),
+                "similarity": round(r.get("similarity", 0), 3),
+                "docstring": entity.get("docstring", "")[:200] if entity.get("docstring") else None,
+                "code": entity.get("code"),
+            })
+
+        return json.dumps({
+            "query": query,
+            "results": formatted,
+            "total": len(formatted),
+        })
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool
+def enrich(
+    entity_filter: Optional[str] = None,
+    limit: int = 10,
+    inline: bool = False,
+) -> str:
+    """Enrich code entities with AI-generated documentation.
+
+    Uses LLM to generate summaries, descriptions, and usage examples
+    for functions and classes.
+
+    Args:
+        entity_filter: Filter entities by name pattern
+        limit: Maximum entities to enrich (default 10)
+        inline: Write enrichment back to source files as docstrings
+
+    Returns:
+        JSON with enrichment results and statistics
+    """
+    import asyncio
+
+    cache_path = Path("autodoc_cache.json")
+    if not cache_path.exists():
+        return json.dumps({
+            "error": "No analysis cache found",
+            "hint": "Run 'analyze' first"
+        })
+
+    try:
+        from .enrichment import EnrichmentEngine
+    except ImportError:
+        return json.dumps({
+            "error": "Enrichment not available in lightweight mode",
+            "hint": "Use the full autodoc installation with LLM API keys configured"
+        })
+
+    config = get_config()
+
+    # Check for API key
+    import os
+    if not os.environ.get("ANTHROPIC_API_KEY") and not os.environ.get("OPENAI_API_KEY"):
+        return json.dumps({
+            "error": "No LLM API key configured",
+            "hint": "Set ANTHROPIC_API_KEY or OPENAI_API_KEY environment variable"
+        })
+
+    try:
+        engine = EnrichmentEngine(config)
+
+        # Load entities from cache
+        with open(cache_path) as f:
+            cache_data = json.load(f)
+
+        entities = cache_data.get("entities", [])
+        if entity_filter:
+            entities = [e for e in entities if entity_filter.lower() in e.get("name", "").lower()]
+
+        entities = entities[:limit]
+
+        enriched_count = 0
+        results = []
+        for entity in entities:
+            try:
+                enrichment = asyncio.get_event_loop().run_until_complete(
+                    engine.enrich_entity(entity)
+                )
+                if enrichment:
+                    enriched_count += 1
+                    results.append({
+                        "name": entity.get("name"),
+                        "type": entity.get("type"),
+                        "summary": enrichment.get("summary"),
+                    })
+            except Exception:
+                continue
+
+        return json.dumps({
+            "success": True,
+            "entities_processed": len(entities),
+            "entities_enriched": enriched_count,
+            "inline_mode": inline,
+            "results": results,
+        })
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool
+def check() -> str:
+    """Check autodoc configuration and dependencies.
+
+    Validates that required dependencies are available and configuration
+    is properly set up.
+
+    Returns:
+        JSON with configuration status and available features
+    """
+    import os
+
+    config = get_config()
+    status = {
+        "config_loaded": True,
+        "llm_provider": config.llm.provider if config.llm else None,
+        "embeddings_provider": config.embeddings.provider if config.embeddings else None,
+        "context_packs": len(config.context_packs) if config.context_packs else 0,
+        "features": {},
+    }
+
+    # Check for API keys
+    status["api_keys"] = {
+        "anthropic": bool(os.environ.get("ANTHROPIC_API_KEY")),
+        "openai": bool(os.environ.get("OPENAI_API_KEY")),
+    }
+
+    # Check for optional dependencies
+    try:
+        import chromadb
+        status["features"]["chromadb"] = True
+    except ImportError:
+        status["features"]["chromadb"] = False
+
+    try:
+        from neo4j import GraphDatabase
+        status["features"]["neo4j"] = True
+    except ImportError:
+        status["features"]["neo4j"] = False
+
+    try:
+        import sentence_transformers
+        status["features"]["sentence_transformers"] = True
+    except ImportError:
+        status["features"]["sentence_transformers"] = False
+
+    # Check for cache files
+    status["cache_files"] = {
+        "analysis": Path("autodoc_cache.json").exists(),
+        "enrichment": Path("autodoc_enrichment_cache.json").exists(),
+        "features": Path(".autodoc/features_cache.json").exists(),
+    }
+
+    return json.dumps(status)
+
+
+@mcp.tool
+def generate(
+    output: str = "AUTODOC.md",
+    include_private: bool = False,
+) -> str:
+    """Generate comprehensive codebase documentation.
+
+    Creates a markdown file with documentation for all analyzed entities.
+
+    Args:
+        output: Output file path (default: AUTODOC.md)
+        include_private: Include private/internal entities
+
+    Returns:
+        JSON with generation status and output path
+    """
+    cache_path = Path("autodoc_cache.json")
+    if not cache_path.exists():
+        return json.dumps({
+            "error": "No analysis cache found",
+            "hint": "Run 'analyze' first"
+        })
+
+    try:
+        with open(cache_path) as f:
+            cache_data = json.load(f)
+
+        entities = cache_data.get("entities", [])
+
+        if not include_private:
+            entities = [e for e in entities if not e.get("name", "").startswith("_")]
+
+        # Load enrichment if available
+        enrichment = {}
+        enrichment_path = Path("autodoc_enrichment_cache.json")
+        if enrichment_path.exists():
+            with open(enrichment_path) as f:
+                enrichment = json.load(f)
+
+        # Generate markdown
+        lines = ["# Codebase Documentation\n"]
+        lines.append(f"*Generated by autodoc*\n")
+        lines.append(f"**{len(entities)} entities documented**\n\n")
+
+        # Group by file
+        by_file: dict = {}
+        for entity in entities:
+            fp = entity.get("file_path", "unknown")
+            if fp not in by_file:
+                by_file[fp] = []
+            by_file[fp].append(entity)
+
+        for file_path, file_entities in sorted(by_file.items()):
+            lines.append(f"## {file_path}\n")
+            for entity in file_entities:
+                entity_type = entity.get("type", "unknown")
+                name = entity.get("name", "unknown")
+                lines.append(f"### `{name}` ({entity_type})\n")
+
+                # Add enrichment if available
+                enrich_key = f"{file_path}::{name}"
+                if enrich_key in enrichment:
+                    e = enrichment[enrich_key]
+                    if e.get("summary"):
+                        lines.append(f"{e['summary']}\n")
+                elif entity.get("docstring"):
+                    lines.append(f"{entity['docstring'][:500]}\n")
+
+                if entity.get("code"):
+                    lines.append(f"```\n{entity['code']}\n```\n")
+                lines.append("\n")
+
+        # Write output
+        output_path = Path(output)
+        output_path.write_text("\n".join(lines))
+
+        return json.dumps({
+            "success": True,
+            "output": str(output_path),
+            "entities_documented": len(entities),
+            "files_covered": len(by_file),
+        })
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool
+def graph_build(
+    clear: bool = False,
+) -> str:
+    """Build a Neo4j code relationship graph.
+
+    Creates nodes for files and entities, and relationships for imports,
+    calls, and inheritance.
+
+    Args:
+        clear: Clear existing graph before building
+
+    Returns:
+        JSON with graph build status
+    """
+    try:
+        from .graph import CodeGraphBuilder
+    except ImportError:
+        return json.dumps({
+            "error": "Neo4j not available",
+            "hint": "Install neo4j driver and ensure Neo4j is running"
+        })
+
+    import os
+
+    neo4j_uri = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
+    neo4j_user = os.environ.get("NEO4J_USER", "neo4j")
+    neo4j_password = os.environ.get("NEO4J_PASSWORD")
+
+    if not neo4j_password:
+        return json.dumps({
+            "error": "NEO4J_PASSWORD not set",
+            "hint": "Set NEO4J_PASSWORD environment variable"
+        })
+
+    cache_path = Path("autodoc_cache.json")
+    if not cache_path.exists():
+        return json.dumps({
+            "error": "No analysis cache found",
+            "hint": "Run 'analyze' first"
+        })
+
+    try:
+        builder = CodeGraphBuilder(neo4j_uri, neo4j_user, neo4j_password)
+
+        if clear:
+            builder.clear_graph()
+
+        with open(cache_path) as f:
+            cache_data = json.load(f)
+
+        entities = cache_data.get("entities", [])
+        builder.build_from_entities(entities)
+
+        stats = builder.get_stats()
+        builder.close()
+
+        return json.dumps({
+            "success": True,
+            "nodes_created": stats.get("nodes", 0),
+            "relationships_created": stats.get("relationships", 0),
+            "graph_cleared": clear,
+        })
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool
+def graph_query(
+    query_type: str = "overview",
+) -> str:
+    """Query the code graph for insights.
+
+    Args:
+        query_type: Type of query - 'overview', 'hotspots', 'dependencies', 'orphans'
+
+    Returns:
+        JSON with query results
+    """
+    try:
+        from .graph import CodeGraphBuilder
+    except ImportError:
+        return json.dumps({
+            "error": "Neo4j not available",
+            "hint": "Install neo4j driver and ensure Neo4j is running"
+        })
+
+    import os
+
+    neo4j_uri = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
+    neo4j_user = os.environ.get("NEO4J_USER", "neo4j")
+    neo4j_password = os.environ.get("NEO4J_PASSWORD")
+
+    if not neo4j_password:
+        return json.dumps({
+            "error": "NEO4J_PASSWORD not set",
+            "hint": "Set NEO4J_PASSWORD environment variable"
+        })
+
+    try:
+        from neo4j import GraphDatabase
+
+        driver = GraphDatabase.driver(neo4j_uri, auth=(neo4j_user, neo4j_password))
+
+        with driver.session() as session:
+            if query_type == "overview":
+                result = session.run("""
+                    MATCH (n)
+                    RETURN labels(n)[0] as type, count(*) as count
+                    ORDER BY count DESC
+                """)
+                data = [{"type": r["type"], "count": r["count"]} for r in result]
+            elif query_type == "hotspots":
+                result = session.run("""
+                    MATCH (f:File)
+                    OPTIONAL MATCH (f)-[r]-()
+                    RETURN f.path as file, count(r) as connections
+                    ORDER BY connections DESC
+                    LIMIT 10
+                """)
+                data = [{"file": r["file"], "connections": r["connections"]} for r in result]
+            elif query_type == "dependencies":
+                result = session.run("""
+                    MATCH (a:File)-[:IMPORTS]->(b:File)
+                    RETURN a.path as from_file, b.path as to_file
+                    LIMIT 50
+                """)
+                data = [{"from": r["from_file"], "to": r["to_file"]} for r in result]
+            elif query_type == "orphans":
+                result = session.run("""
+                    MATCH (f:File)
+                    WHERE NOT (f)-[:IMPORTS]-() AND NOT ()-[:IMPORTS]->(f)
+                    RETURN f.path as file
+                    LIMIT 20
+                """)
+                data = [{"file": r["file"]} for r in result]
+            else:
+                return json.dumps({"error": f"Unknown query type: {query_type}"})
+
+        driver.close()
+        return json.dumps({"query_type": query_type, "results": data})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
 def main():
     """Run the MCP server.
 
