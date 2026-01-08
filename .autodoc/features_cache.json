@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "community_count": 1,
+  "modularity": 0.0,
+  "ran_levels": 1,
+  "graph_hash": "b6fdd6948a42fe8d90ccce2b8ee61719",
+  "max_degree_threshold": 45,
+  "features": {
+    "7": {
+      "id": 7,
+      "files": [
+        "src/autodoc/ot_engine.py",
+        "src/autodoc/enrichment.py",
+        "src/autodoc/config.py",
+        "src/autodoc/sdk.py",
+        "src/autodoc/local_graph.py",
+        "src/autodoc/project_analyzer.py",
+        "src/autodoc/analyzer.py",
+        "src/autodoc/chromadb_embedder.py",
+        "src/autodoc/makefile_parser.py",
+        "src/autodoc/features.py",
+        "src/autodoc/collaboration_ui.py",
+        "src/autodoc/summary.py",
+        "src/autodoc/embedder.py",
+        "src/autodoc/rust_analyzer.py",
+        "src/autodoc/skill_generator.py",
+        "src/autodoc/mcp_server.py"
+      ],
+      "file_count": 16,
+      "sample_files": [
+        {
+          "path": "src/autodoc/ot_engine.py",
+          "summary": null
+        },
+        {
+          "path": "src/autodoc/enrichment.py",
+          "summary": null
+        },
+        {
+          "path": "src/autodoc/config.py",
+          "summary": null
+        },
+        {
+          "path": "src/autodoc/sdk.py",
+          "summary": null
+        },
+        {
+          "path": "src/autodoc/local_graph.py",
+          "summary": null
+        },
+        {
+          "path": "src/autodoc/project_analyzer.py",
+          "summary": null
+        },
+        {
+          "path": "src/autodoc/analyzer.py",
+          "summary": null
+        },
+        {
+          "path": "src/autodoc/chromadb_embedder.py",
+          "summary": null
+        },
+        {
+          "path": "src/autodoc/makefile_parser.py",
+          "summary": null
+        },
+        {
+          "path": "src/autodoc/features.py",
+          "summary": null
+        }
+      ],
+      "name": "text-operation-management",
+      "display_name": "Text Operation Management",
+      "reasoning": "The code cluster primarily focuses on representing and managing various types of text operations within the autodoc engine, making 'Text Operation Management' a fitting name that encapsulates its core functionality.",
+      "named_at": "2026-01-07T16:57:54.257277"
+    }
+  },
+  "detected_at": "2026-01-07T16:36:49.021661"
+}

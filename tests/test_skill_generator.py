@@ -160,8 +160,18 @@ class TestSkillGenerator:
             "name": "auth",
             "display_name": "Auth",
             "entities": [
-                {"type": "function", "name": "login", "docstring": "Login user", "file_path": "auth.py"},
-                {"type": "class", "name": "User", "docstring": "User model", "file_path": "models.py"},
+                {
+                    "type": "function",
+                    "name": "login",
+                    "docstring": "Login user",
+                    "file_path": "auth.py",
+                },
+                {
+                    "type": "class",
+                    "name": "User",
+                    "docstring": "User model",
+                    "file_path": "models.py",
+                },
             ],
         }
         content = generator.generate_entities_content(pack_data)
@@ -265,7 +275,12 @@ class TestSkillGeneratorIntegration:
                 "security_notes": ["Tokens expire after 1 hour"],
             },
             "entities": [
-                {"type": "function", "name": "login", "docstring": "Login user", "file_path": "auth.py"},
+                {
+                    "type": "function",
+                    "name": "login",
+                    "docstring": "Login user",
+                    "file_path": "auth.py",
+                },
             ],
         }
 

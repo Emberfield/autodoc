@@ -3279,7 +3279,9 @@ def pack_deps(name, output_json, transitive):
     help="Generate LLM summary if missing (requires OpenAI API key)",
 )
 @click.option("--json", "output_json", is_flag=True, help="Output result as JSON")
-def pack_export_skill(name, export_all, output, skill_format, include_reference, generate_summary, output_json):
+def pack_export_skill(
+    name, export_all, output, skill_format, include_reference, generate_summary, output_json
+):
     """Export context pack(s) as SKILL.md for AI assistants.
 
     Generates SKILL.md files that are discoverable by Claude Code,
@@ -3386,9 +3388,9 @@ def pack_export_skill(name, export_all, output, skill_format, include_reference,
 
                 summary_prompt = f"""Analyze this code pack and provide a structured summary:
 
-Pack: {pack_data.get('display_name', pack_name)}
-Description: {pack_data.get('description', '')}
-Files: {', '.join(pack_data.get('files', [])[:10])}
+Pack: {pack_data.get("display_name", pack_name)}
+Description: {pack_data.get("description", "")}
+Files: {", ".join(pack_data.get("files", [])[:10])}
 
 Key entities:
 {chr(10).join(entity_summaries)}
@@ -3404,7 +3406,9 @@ Provide:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 try:
-                    summary_text = loop.run_until_complete(enricher.generate_llm_response(summary_prompt))
+                    summary_text = loop.run_until_complete(
+                        enricher.generate_llm_response(summary_prompt)
+                    )
 
                     # Parse structured response
                     pack_data["llm_summary"] = {
@@ -3433,7 +3437,9 @@ Provide:
             results.append(result)
 
             if not output_json:
-                console.print(f"[green]✓[/green] Exported [bold]{pack_name}[/bold] → {skill.skill_path}")
+                console.print(
+                    f"[green]✓[/green] Exported [bold]{pack_name}[/bold] → {skill.skill_path}"
+                )
                 if skill.reference_files:
                     for ref_name in skill.reference_files:
                         console.print(f"  [dim]+ {ref_name}[/dim]")
@@ -3455,7 +3461,9 @@ Provide:
     else:
         if results:
             console.print(f"\n[bold green]✓ Exported {len(results)} skill(s)[/bold green]")
-            console.print(f"[dim]Output directory: {skill_config.get_output_dir(project_root)}[/dim]")
+            console.print(
+                f"[dim]Output directory: {skill_config.get_output_dir(project_root)}[/dim]"
+            )
 
             if skill_format == "claude":
                 console.print(
@@ -3519,8 +3527,9 @@ def features_detect(force, max_degree, as_json):
         console.print("  pip install neo4j matplotlib plotly networkx pyvis")
         return
 
-    from .graph import GraphConfig
     from neo4j import GraphDatabase
+
+    from .graph import GraphConfig
 
     cache = FeaturesCache()
 
@@ -3567,13 +3576,17 @@ def features_detect(force, max_degree, as_json):
                 if as_json:
                     console.print(json.dumps({"cached": True, **cached.to_dict()}))
                 else:
-                    console.print(f"[yellow]Using cached results from {cached.detected_at}[/yellow]")
-                    console.print(f"[dim]Use --force to re-run detection[/dim]\n")
+                    console.print(
+                        f"[yellow]Using cached results from {cached.detected_at}[/yellow]"
+                    )
+                    console.print("[dim]Use --force to re-run detection[/dim]\n")
                     _display_detection_summary(cached)
                 driver.close()
                 return
 
-    console.print(f"[yellow]Running Louvain community detection (max_degree={max_degree})...[/yellow]")
+    console.print(
+        f"[yellow]Running Louvain community detection (max_degree={max_degree})...[/yellow]"
+    )
 
     try:
         result = detector.detect_features(max_degree=max_degree)
@@ -3623,7 +3636,7 @@ def _display_detection_summary(result):
         )
 
     console.print(table)
-    console.print(f"\n[dim]Run 'autodoc features name' to generate semantic names[/dim]")
+    console.print("\n[dim]Run 'autodoc features name' to generate semantic names[/dim]")
 
 
 @features.command("name")
@@ -3637,7 +3650,8 @@ def features_name(feature_id, force, dry_run):
     Uses the configured LLM provider (anthropic, openai, ollama).
     """
     import asyncio
-    from .features import FeaturesCache, FeatureNamer
+
+    from .features import FeatureNamer, FeaturesCache
 
     cache = FeaturesCache()
     result = cache.load()
@@ -3684,7 +3698,9 @@ def features_name(feature_id, force, dry_run):
                 console.print(f"    - {sf.path}")
         return
 
-    console.print(f"[yellow]Naming {len(features_to_name)} features with {config.llm.provider}...[/yellow]")
+    console.print(
+        f"[yellow]Naming {len(features_to_name)} features with {config.llm.provider}...[/yellow]"
+    )
 
     namer = FeatureNamer(config)
 
@@ -3735,21 +3751,27 @@ def features_list(named_only, as_json):
         feature = result.features[fid]
         if named_only and not feature.name:
             continue
-        features_data.append({
-            "id": fid,
-            "name": feature.name,
-            "display_name": feature.display_name,
-            "file_count": feature.file_count,
-            "named": feature.name is not None,
-        })
+        features_data.append(
+            {
+                "id": fid,
+                "name": feature.name,
+                "display_name": feature.display_name,
+                "file_count": feature.file_count,
+                "named": feature.name is not None,
+            }
+        )
 
     if as_json:
-        console.print(json.dumps({
-            "community_count": result.community_count,
-            "modularity": result.modularity,
-            "detected_at": result.detected_at,
-            "features": features_data,
-        }))
+        console.print(
+            json.dumps(
+                {
+                    "community_count": result.community_count,
+                    "modularity": result.modularity,
+                    "detected_at": result.detected_at,
+                    "features": features_data,
+                }
+            )
+        )
         return
 
     _display_detection_summary(result)
@@ -3803,8 +3825,9 @@ def features_export(min_files, save, as_json):
     added to .autodoc.yaml for use with 'autodoc pack' commands.
     """
     from pathlib import Path as PathLib
-    from .features import FeaturesCache
+
     from .config import ContextPackConfig
+    from .features import FeaturesCache
 
     cache = FeaturesCache()
     result = cache.load()
@@ -3841,7 +3864,8 @@ def features_export(min_files, save, as_json):
         pack_config = ContextPackConfig(
             name=feature.name,
             display_name=feature.display_name or feature.name.replace("-", " ").title(),
-            description=feature.reasoning or f"Auto-detected feature containing {feature.file_count} files",
+            description=feature.reasoning
+            or f"Auto-detected feature containing {feature.file_count} files",
             files=patterns,
             tags=["auto-detected"],
         )

@@ -8,7 +8,7 @@ import hashlib
 import json
 import logging
 import re
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -203,9 +203,7 @@ class FeatureDetector:
             )
 
         if not self.check_graph_exists():
-            raise RuntimeError(
-                "No code graph found. Run 'autodoc graph' first to build the graph."
-            )
+            raise RuntimeError("No code graph found. Run 'autodoc graph' first to build the graph.")
 
         graph_hash = self.compute_graph_hash()
 
@@ -303,9 +301,7 @@ class FeatureDetector:
                 modularity = louvain_record["modularity"]
                 ran_levels = louvain_record["ranLevels"]
 
-                log.info(
-                    f"Detected {community_count} communities with modularity {modularity:.3f}"
-                )
+                log.info(f"Detected {community_count} communities with modularity {modularity:.3f}")
             except (ClientError, DatabaseError) as e:
                 raise RuntimeError(f"Failed to run Louvain algorithm: {e}")
 
@@ -559,12 +555,14 @@ Respond in JSON:
 
             if response:
                 # Get display name, preferring explicit display_name over name
-                display_name = response.get("display_name") or response.get("name") or f"Feature {feature.id}"
+                display_name = (
+                    response.get("display_name") or response.get("name") or f"Feature {feature.id}"
+                )
 
                 # Create slug from display_name (ensure valid pack name format)
                 slug = response.get("name", display_name)
                 # Convert to lowercase, replace spaces/special chars with hyphens
-                slug = re.sub(r'[^a-zA-Z0-9]+', '-', slug.lower()).strip('-')
+                slug = re.sub(r"[^a-zA-Z0-9]+", "-", slug.lower()).strip("-")
                 if not slug:
                     slug = f"feature-{feature.id}"
 

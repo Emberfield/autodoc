@@ -711,10 +711,12 @@ def pack_export_skill(
         pack_data_path = project_root / ".autodoc" / "packs" / f"{pack_name}.json"
 
         if not pack_data_path.exists():
-            errors.append({
-                "pack": pack_name,
-                "error": f"Pack not built. Run: autodoc pack build {pack_name}",
-            })
+            errors.append(
+                {
+                    "pack": pack_name,
+                    "error": f"Pack not built. Run: autodoc pack build {pack_name}",
+                }
+            )
             continue
 
         try:
@@ -724,23 +726,29 @@ def pack_export_skill(
             skill = generator.generate(pack_data, project_root)
             created_files = generator.write_skill(skill)
 
-            results.append({
-                "pack": pack_name,
-                "skill_name": skill.skill_name,
-                "files_created": [str(f) for f in created_files],
-            })
+            results.append(
+                {
+                    "pack": pack_name,
+                    "skill_name": skill.skill_name,
+                    "files_created": [str(f) for f in created_files],
+                }
+            )
         except Exception as e:
-            errors.append({
-                "pack": pack_name,
-                "error": str(e),
-            })
+            errors.append(
+                {
+                    "pack": pack_name,
+                    "error": str(e),
+                }
+            )
 
-    return json.dumps({
-        "success": results,
-        "errors": errors,
-        "format": format,
-        "output_dir": str(skill_config.get_output_dir(project_root)),
-    })
+    return json.dumps(
+        {
+            "success": results,
+            "errors": errors,
+            "format": format,
+            "output_dir": str(skill_config.get_output_dir(project_root)),
+        }
+    )
 
 
 @mcp.resource("autodoc://packs")
@@ -789,30 +797,36 @@ def feature_list(named_only: bool = False) -> str:
     result = cache.load()
 
     if not result:
-        return json.dumps({
-            "error": "No features detected. Run 'autodoc features detect' first.",
-            "features": [],
-        })
+        return json.dumps(
+            {
+                "error": "No features detected. Run 'autodoc features detect' first.",
+                "features": [],
+            }
+        )
 
     features = []
     for fid, feature in result.features.items():
         if named_only and not feature.name:
             continue
-        features.append({
-            "id": fid,
-            "name": feature.name,
-            "display_name": feature.display_name,
-            "file_count": feature.file_count,
-            "sample_paths": [f.path for f in feature.sample_files[:5]],
-        })
+        features.append(
+            {
+                "id": fid,
+                "name": feature.name,
+                "display_name": feature.display_name,
+                "file_count": feature.file_count,
+                "sample_paths": [f.path for f in feature.sample_files[:5]],
+            }
+        )
 
-    return json.dumps({
-        "community_count": result.community_count,
-        "modularity": result.modularity,
-        "detected_at": result.detected_at,
-        "features": features,
-        "total": len(features),
-    })
+    return json.dumps(
+        {
+            "community_count": result.community_count,
+            "modularity": result.modularity,
+            "detected_at": result.detected_at,
+            "features": features,
+            "total": len(features),
+        }
+    )
 
 
 @mcp.tool
@@ -831,15 +845,19 @@ def feature_files(feature_id: int) -> str:
     result = cache.load()
 
     if not result:
-        return json.dumps({
-            "error": "No features detected. Run 'autodoc features detect' first.",
-        })
+        return json.dumps(
+            {
+                "error": "No features detected. Run 'autodoc features detect' first.",
+            }
+        )
 
     if feature_id not in result.features:
-        return json.dumps({
-            "error": f"Feature {feature_id} not found",
-            "available": list(result.features.keys()),
-        })
+        return json.dumps(
+            {
+                "error": f"Feature {feature_id} not found",
+                "available": list(result.features.keys()),
+            }
+        )
 
     feature = result.features[feature_id]
     return json.dumps(feature.to_dict())

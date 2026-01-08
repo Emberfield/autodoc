@@ -10,8 +10,8 @@ import pytest
 
 try:
     from autodoc.features import (
-        DetectedFeature,
         EXCLUDED_PATH_PATTERNS,
+        DetectedFeature,
         FeatureDetectionResult,
         FeatureDetector,
         FeatureNamer,

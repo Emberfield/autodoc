@@ -475,9 +475,7 @@ class Autodoc:
         # Load pack data
         pack_data_path = self.path / ".autodoc" / "packs" / f"{name}.json"
         if not pack_data_path.exists():
-            raise ValueError(
-                f"Pack '{name}' not built. Call build_pack('{name}') first."
-            )
+            raise ValueError(f"Pack '{name}' not built. Call build_pack('{name}') first.")
 
         pack_data = json.loads(pack_data_path.read_text())
 
