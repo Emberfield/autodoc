@@ -16,6 +16,16 @@ httpx>=0.26.0
 # Pydantic for data validation
 pydantic>=2.5.0
 
+# Cloud Storage (for artifacts)
+google-cloud-storage>=2.14.0
+
+# Rate limiting
+slowapi>=0.1.9
+
+# Autodoc CLI (for analysis)
+# This will be installed from the local package in Docker
+# autodoc>=0.10.0
+
 # Testing (dev dependencies)
 pytest>=8.0.0
 pytest-asyncio>=0.23.0

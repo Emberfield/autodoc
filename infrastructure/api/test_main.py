@@ -8,8 +8,12 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock
 from fastapi.testclient import TestClient
 
-# Mock supabase before importing main
-with patch.dict("os.environ", {"SUPABASE_SERVICE_KEY": "test-key"}):
+# Mock environment before importing main
+# Disable JWT verification for tests so we can use simple test tokens
+with patch.dict("os.environ", {
+    "SUPABASE_SERVICE_KEY": "test-key",
+    "JWT_VERIFY_ENABLED": "false",  # Disable JWKS verification for tests
+}):
     from main import app, UserInfo, PLAN_LIMITS
 
 
@@ -269,6 +273,247 @@ class TestPlanLimits:
 
         # Team should have most
         assert PLAN_LIMITS["team"]["private_repos"] > PLAN_LIMITS["pro"]["private_repos"]
+
+
+class TestGitHubAppEndpoints:
+    """Test GitHub App integration endpoints."""
+
+    def test_install_redirect_requires_auth(self, client):
+        """Test install redirect requires authentication."""
+        response = client.get("/api/github/install")
+        assert response.status_code == 422  # Missing auth header
+
+    @patch("main.GITHUB_APP_CLIENT_ID", "test-client-id")
+    def test_install_redirect_not_configured(self, client, auth_header):
+        """Test install redirect fails when GitHub App not configured."""
+        with patch("main.GITHUB_APP_CLIENT_ID", None):
+            response = client.get("/api/github/install", headers=auth_header)
+            assert response.status_code == 500
+            assert "not configured" in response.json()["detail"]
+
+    @patch("main.GITHUB_APP_CLIENT_ID", "test-client-id")
+    def test_install_redirect_configured(self, client, auth_header):
+        """Test install redirect works when configured and includes state."""
+        response = client.get("/api/github/install", headers=auth_header, follow_redirects=False)
+        assert response.status_code == 307  # Redirect
+        location = response.headers.get("location", "")
+        assert "github.com/apps" in location
+        assert "state=" in location  # CSRF state must be included
+
+    def test_github_callback_invalid_params(self, client):
+        """Test callback fails with invalid parameters."""
+        response = client.get("/api/github/callback")
+        assert response.status_code == 400
+        assert "Invalid callback" in response.json()["detail"]
+
+    def test_github_callback_missing_state(self, client):
+        """Test callback fails without CSRF state parameter."""
+        response = client.get("/api/github/callback?installation_id=12345&setup_action=install")
+        assert response.status_code == 400
+        assert "Missing state" in response.json()["detail"]
+
+    def test_github_callback_invalid_state(self, client):
+        """Test callback fails with invalid CSRF state."""
+        response = client.get(
+            "/api/github/callback?installation_id=12345&setup_action=install&state=invalid-state"
+        )
+        assert response.status_code == 400
+        assert "Invalid or expired state" in response.json()["detail"]
+
+    @patch("main.get_supabase")
+    def test_list_installations_empty(self, mock_get_supabase, client, auth_header):
+        """Test listing GitHub installations when user has none."""
+        mock_supabase = MagicMock()
+        mock_get_supabase.return_value = mock_supabase
+        mock_supabase.table.return_value.select.return_value.eq.return_value.execute.return_value.data = []
+
+        response = client.get("/api/github/installations", headers=auth_header)
+
+        assert response.status_code == 200
+        assert response.json() == []
+
+    @patch("main.get_supabase")
+    def test_list_installations_with_data(self, mock_get_supabase, client, auth_header):
+        """Test listing GitHub installations with existing data."""
+        mock_supabase = MagicMock()
+        mock_get_supabase.return_value = mock_supabase
+        mock_supabase.table.return_value.select.return_value.eq.return_value.execute.return_value.data = [
+            {
+                "installation_id": 12345,
+                "account_login": "testuser",
+                "account_type": "User",
+            }
+        ]
+
+        response = client.get("/api/github/installations", headers=auth_header)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["installation_id"] == 12345
+        assert data[0]["account_login"] == "testuser"
+
+
+class TestInstallationHijacking:
+    """Test installation hijacking prevention."""
+
+    @patch("main.get_supabase")
+    @patch("main.generate_github_app_jwt")
+    @patch("httpx.AsyncClient.get")
+    def test_link_installation_own_account(
+        self, mock_http_get, mock_jwt, mock_get_supabase, client, auth_header
+    ):
+        """Test user can link installation for their own GitHub account."""
+        import asyncio
+        from unittest.mock import AsyncMock
+
+        mock_jwt.return_value = "mock-jwt"
+        mock_supabase = MagicMock()
+        mock_get_supabase.return_value = mock_supabase
+
+        # Mock GitHub API response with user's own account (github_id matches)
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "account": {
+                "id": "gh-456",  # Matches auth_header github_id
+                "login": "testuser",
+                "type": "User",
+            }
+        }
+
+        # Create async mock for httpx
+        async def mock_get(*args, **kwargs):
+            return mock_response
+
+        mock_http_get.side_effect = mock_get
+
+        response = client.post(
+            "/api/github/link-installation?installation_id=12345",
+            headers=auth_header,
+        )
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "linked"
+
+    @patch("main.get_supabase")
+    @patch("main.generate_github_app_jwt")
+    @patch("httpx.AsyncClient.get")
+    def test_link_installation_other_user_blocked(
+        self, mock_http_get, mock_jwt, mock_get_supabase, client, auth_header
+    ):
+        """Test user cannot hijack installation for another user's account."""
+        mock_jwt.return_value = "mock-jwt"
+        mock_supabase = MagicMock()
+        mock_get_supabase.return_value = mock_supabase
+
+        # Mock GitHub API response with different user's account
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "account": {
+                "id": "different-user-id",  # Does NOT match auth_header github_id
+                "login": "otheruser",
+                "type": "User",
+            }
+        }
+
+        async def mock_get(*args, **kwargs):
+            return mock_response
+
+        mock_http_get.side_effect = mock_get
+
+        response = client.post(
+            "/api/github/link-installation?installation_id=99999",
+            headers=auth_header,
+        )
+
+        assert response.status_code == 403
+        assert "don't own this GitHub account" in response.json()["detail"]
+
+
+class TestGitHubWebhook:
+    """Test GitHub webhook handler."""
+
+    @patch("main.GITHUB_WEBHOOK_SECRET", "test-secret")
+    @patch("main.get_supabase")
+    def test_webhook_installation_deleted(self, mock_get_supabase, client):
+        """Test webhook handles installation deletion."""
+        import hashlib
+        import hmac
+
+        mock_supabase = MagicMock()
+        mock_get_supabase.return_value = mock_supabase
+
+        payload = b'{"action": "deleted", "installation": {"id": 12345}}'
+        signature = "sha256=" + hmac.new(b"test-secret", payload, hashlib.sha256).hexdigest()
+
+        response = client.post(
+            "/webhooks/github",
+            content=payload,
+            headers={
+                "X-GitHub-Event": "installation",
+                "X-Hub-Signature-256": signature,
+                "Content-Type": "application/json",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "ok"
+
+    @patch("main.GITHUB_WEBHOOK_SECRET", "test-secret")
+    @patch("main.get_supabase")
+    def test_webhook_push_event(self, mock_get_supabase, client):
+        """Test webhook handles push events."""
+        import hashlib
+        import hmac
+
+        mock_supabase = MagicMock()
+        mock_get_supabase.return_value = mock_supabase
+        # Mock finding a tracked repo
+        mock_supabase.table.return_value.select.return_value.eq.return_value.execute.return_value.data = []
+
+        payload = b'{"ref": "refs/heads/main", "repository": {"full_name": "owner/repo", "default_branch": "main"}}'
+        signature = "sha256=" + hmac.new(b"test-secret", payload, hashlib.sha256).hexdigest()
+
+        response = client.post(
+            "/webhooks/github",
+            content=payload,
+            headers={
+                "X-GitHub-Event": "push",
+                "X-Hub-Signature-256": signature,
+                "Content-Type": "application/json",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "ok"
+
+    @patch("main.GITHUB_WEBHOOK_SECRET", None)
+    def test_webhook_rejected_without_secret_configured(self, client):
+        """Test webhook is rejected when secret not configured."""
+        response = client.post(
+            "/webhooks/github",
+            json={"action": "test"},
+            headers={"X-GitHub-Event": "installation"},
+        )
+
+        assert response.status_code == 401
+
+    @patch("main.GITHUB_WEBHOOK_SECRET", "test-secret")
+    def test_webhook_invalid_signature(self, client):
+        """Test webhook rejects invalid signature."""
+        response = client.post(
+            "/webhooks/github",
+            json={"action": "test"},
+            headers={
+                "X-GitHub-Event": "installation",
+                "X-Hub-Signature-256": "sha256=invalid",
+            },
+        )
+
+        assert response.status_code == 401
+        assert "Invalid webhook signature" in response.json()["detail"]
 
 
 if __name__ == "__main__":

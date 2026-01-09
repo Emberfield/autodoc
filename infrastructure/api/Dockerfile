@@ -14,6 +14,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Install autodoc from PyPI (for analysis)
+# Note: In production, pin to specific version
+RUN pip install --no-cache-dir autodoc-ai || pip install --no-cache-dir git+https://github.com/autodoc-ai/autodoc.git || echo "Autodoc not available on PyPI, will use local analysis"
+
 # Copy application code
 COPY . .
 
