@@ -1849,7 +1849,7 @@ def pack_list(tag, security, as_json):
             console.print("[]")
         else:
             console.print("[yellow]No context packs configured.[/yellow]")
-            console.print("\nAdd packs to your .autodoc.yaml:")
+            console.print("\nAdd packs to your .autodoc.yml:")
             example = """[dim]context_packs:
   - name: authentication
     display_name: Authentication System
@@ -2430,7 +2430,7 @@ def pack_query(name, query, limit, keyword, output_json):
 
 
 @pack.command("auto-generate")
-@click.option("--save", is_flag=True, help="Save generated packs to .autodoc.yaml")
+@click.option("--save", is_flag=True, help="Save generated packs to .autodoc.yml")
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON for programmatic use")
 @click.option("--min-files", default=3, help="Minimum files for a pack (default: 3)")
 @click.option(
@@ -2447,7 +2447,7 @@ def pack_auto_generate(save, output_json, min_files, root_path):
     - Language markers (setup.py, package.json, go.mod, Cargo.toml)
     - Framework patterns (Django apps, FastAPI routers, React components)
 
-    Use --save to append suggested packs to .autodoc.yaml.
+    Use --save to append suggested packs to .autodoc.yml.
     Use --json for programmatic output (e.g., Temporal workflows).
     Use --root to specify a different base directory (useful in Docker/CI).
     """
@@ -2792,9 +2792,9 @@ def pack_auto_generate(save, output_json, min_files, root_path):
             if candidate.exists():
                 config_path = candidate
                 break
-        # Default to .autodoc.yaml if no config exists
+        # Default to .autodoc.yml if no config exists (consistent with 'autodoc init')
         if not config_path:
-            config_path = PathLib.cwd() / ".autodoc.yaml"
+            config_path = PathLib.cwd() / ".autodoc.yml"
 
         # Create ContextPackConfig objects
         new_packs = []
@@ -3315,7 +3315,7 @@ def pack_export_skill(
         if output_json:
             print(json.dumps({"error": "No context packs defined"}))
         else:
-            console.print("[yellow]No context packs defined in .autodoc.yaml[/yellow]")
+            console.print("[yellow]No context packs defined in .autodoc.yml[/yellow]")
         return
 
     # Determine packs to export
@@ -3676,7 +3676,7 @@ def features_name(feature_id, force, dry_run):
     api_key = config.llm.get_api_key()
     if not api_key and config.llm.provider != "ollama":
         console.print(f"[red]No API key found for {config.llm.provider}[/red]")
-        console.print("[yellow]Set via environment variable or .autodoc.yaml[/yellow]")
+        console.print("[yellow]Set via environment variable or .autodoc.yml[/yellow]")
         return
 
     # Filter features to name

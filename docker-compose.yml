@@ -1,0 +1,47 @@
+# Docker Compose for Autodoc with Neo4j Graph Database
+#
+# Usage:
+#   docker compose up -d          # Start Neo4j in background
+#   docker compose down           # Stop Neo4j
+#   docker compose logs -f neo4j  # View Neo4j logs
+#
+# After starting, Neo4j will be available at:
+#   - Browser: http://localhost:7474
+#   - Bolt:    bolt://localhost:7687
+#
+# Default credentials: neo4j / autodoc123 (change NEO4J_AUTH below for production)
+
+services:
+  neo4j:
+    image: neo4j:5-community
+    container_name: autodoc-neo4j
+    ports:
+      - "7474:7474"  # HTTP (Neo4j Browser)
+      - "7687:7687"  # Bolt protocol
+    environment:
+      # Authentication (format: username/password)
+      - NEO4J_AUTH=neo4j/autodoc123
+      # Enable GDS (Graph Data Science) plugin
+      - NEO4J_PLUGINS=["graph-data-science"]
+      # Memory settings (adjust based on your system)
+      - NEO4J_server_memory_heap_initial__size=512m
+      - NEO4J_server_memory_heap_max__size=1G
+      - NEO4J_server_memory_pagecache_size=512m
+      # Allow GDS procedures
+      - NEO4J_dbms_security_procedures_unrestricted=gds.*
+      - NEO4J_dbms_security_procedures_allowlist=gds.*
+    volumes:
+      # Persist data between container restarts
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:7474"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  neo4j_data:
+  neo4j_logs:

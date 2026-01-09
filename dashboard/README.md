@@ -53,7 +53,7 @@ The dashboard reads from these files in your project root:
 |------|-------------|
 | `autodoc_cache.json` | Analysis results (entities, files) |
 | `autodoc_enrichment_cache.json` | AI-generated documentation |
-| `.autodoc.yaml` | Configuration and context packs |
+| `.autodoc.yml` | Configuration and context packs |
 | `.autodoc/features_cache.json` | Detected code features |
 
 ## Development

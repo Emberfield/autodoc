@@ -34,6 +34,102 @@ def get_config() -> AutodocConfig:
 
 
 @mcp.tool
+def capabilities() -> str:
+    """Check autodoc capabilities and tool availability.
+
+    Returns which tools are available based on installed dependencies,
+    running services, and existing cache files. Use this to understand
+    what features you can use before calling other tools.
+
+    Returns:
+        JSON with available tools categorized by requirement status
+    """
+    import os
+
+    result = {
+        "core_tools": {
+            "status": "available",
+            "tools": [
+                "pack_list",
+                "pack_info",
+                "pack_query",
+                "pack_files",
+                "pack_entities",
+                "pack_status",
+                "pack_deps",
+                "pack_diff",
+                "impact_analysis",
+                "analyze",
+                "search",
+                "generate",
+                "check",
+            ],
+            "description": "Always available - context pack and basic analysis tools",
+        },
+        "enrichment_tools": {
+            "tools": ["enrich"],
+            "requires": "LLM API key (ANTHROPIC_API_KEY or OPENAI_API_KEY)",
+            "status": "available"
+            if os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OPENAI_API_KEY")
+            else "unavailable",
+        },
+        "graph_tools": {
+            "tools": ["graph_build", "graph_query"],
+            "requires": "Neo4j running + NEO4J_PASSWORD env var",
+            "setup_hint": "Run: docker compose up -d (uses included docker-compose.yml)",
+            "status": "unknown",
+        },
+        "feature_tools": {
+            "tools": ["feature_list", "feature_files"],
+            "requires": "Graph tools + 'autodoc features detect' run first",
+            "status": "unknown",
+        },
+    }
+
+    # Check Neo4j availability
+    try:
+        from neo4j import GraphDatabase
+
+        neo4j_password = os.environ.get("NEO4J_PASSWORD")
+        if neo4j_password:
+            neo4j_uri = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
+            neo4j_user = os.environ.get("NEO4J_USER", "neo4j")
+            try:
+                driver = GraphDatabase.driver(neo4j_uri, auth=(neo4j_user, neo4j_password))
+                driver.verify_connectivity()
+                driver.close()
+                result["graph_tools"]["status"] = "available"
+            except Exception:
+                result["graph_tools"]["status"] = "unavailable"
+                result["graph_tools"]["error"] = "Cannot connect to Neo4j"
+        else:
+            result["graph_tools"]["status"] = "unavailable"
+            result["graph_tools"]["error"] = "NEO4J_PASSWORD not set"
+    except ImportError:
+        result["graph_tools"]["status"] = "unavailable"
+        result["graph_tools"]["error"] = "neo4j package not installed (run: make setup-graph)"
+
+    # Check features cache
+    from pathlib import Path
+
+    features_cache = Path(".autodoc/features_cache.json")
+    if features_cache.exists():
+        result["feature_tools"]["status"] = "available"
+    else:
+        result["feature_tools"]["status"] = "unavailable"
+        result["feature_tools"]["error"] = "No features detected yet"
+
+    # Check analysis cache
+    cache_exists = Path("autodoc_cache.json").exists()
+    result["analysis_cache"] = {
+        "exists": cache_exists,
+        "hint": "Run 'analyze' tool first" if not cache_exists else None,
+    }
+
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool
 def pack_list(
     tag: Optional[str] = None,
     security: Optional[str] = None,
@@ -782,8 +878,10 @@ def get_pack_resource(name: str) -> str:
 def feature_list(named_only: bool = False) -> str:
     """List auto-detected code features.
 
+    REQUIRES: Neo4j graph database running. Use 'capabilities' tool to check availability.
+    Setup: docker compose up -d && autodoc features detect
+
     Features are code clusters detected using graph analysis (Louvain algorithm).
-    Run 'autodoc features detect' first to detect features.
 
     Args:
         named_only: Only show features that have been named by LLM
@@ -832,6 +930,9 @@ def feature_list(named_only: bool = False) -> str:
 @mcp.tool
 def feature_files(feature_id: int) -> str:
     """Get all files belonging to a detected feature.
+
+    REQUIRES: Neo4j graph database running. Use 'capabilities' tool to check availability.
+    Setup: docker compose up -d && autodoc features detect
 
     Args:
         feature_id: The feature ID to query
@@ -1227,6 +1328,9 @@ def graph_build(
 ) -> str:
     """Build a Neo4j code relationship graph.
 
+    REQUIRES: Neo4j graph database running. Use 'capabilities' tool to check availability.
+    Setup: docker compose up -d && export NEO4J_PASSWORD=autodoc123
+
     Creates nodes for files and entities, and relationships for imports,
     calls, and inheritance.
 
@@ -1293,6 +1397,9 @@ def graph_query(
     query_type: str = "overview",
 ) -> str:
     """Query the code graph for insights.
+
+    REQUIRES: Neo4j graph database running with graph data. Use 'capabilities' tool to check.
+    Setup: docker compose up -d && export NEO4J_PASSWORD=autodoc123 && autodoc graph --build
 
     Args:
         query_type: Type of query - 'overview', 'hotspots', 'dependencies', 'orphans'

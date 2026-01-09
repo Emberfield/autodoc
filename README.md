@@ -105,6 +105,9 @@ autodoc mcp-server
 ```
 
 **Available MCP Tools:**
+
+*Core Tools (always available):*
+- `capabilities` - Check what tools are available based on your setup
 - `pack_list` - List all context packs
 - `pack_info` - Get details about a pack
 - `pack_query` - Semantic search within a pack
@@ -114,6 +117,40 @@ autodoc mcp-server
 - `pack_status` - Get indexing status
 - `pack_deps` - Get pack dependencies
 - `pack_diff` - Check what changed since last index
+- `analyze` - Analyze codebase and extract entities
+- `search` - Semantic search across codebase
+- `generate` - Generate documentation
+
+*Graph Tools (require Neo4j - see setup below):*
+- `graph_build` - Build code relationship graph
+- `graph_query` - Query graph for insights
+- `feature_list` - List auto-detected code features
+- `feature_files` - Get files in a feature cluster
+
+**Tip:** Call the `capabilities` tool first to see which tools are available in your environment.
+
+### Web Dashboard
+
+Autodoc includes a web-based dashboard for exploring your analyzed codebase:
+
+```bash
+# From the autodoc root directory
+cd dashboard
+npm install
+npm run dev
+```
+
+Open http://localhost:3000 to view:
+- **Overview**: Stats and summary of your analyzed codebase
+- **Files**: Browse file tree with enrichment status indicators
+- **Entities**: Search and filter functions, classes, and methods
+- **Packs**: View context packs and their file patterns
+- **Features**: Explore auto-detected code clusters
+- **Search**: Semantic search interface
+
+**Prerequisites**: The dashboard reads from autodoc cache files. Run `autodoc analyze . --save` first.
+
+See [dashboard/README.md](dashboard/README.md) for more details.
 
 ### Python API
 
@@ -139,7 +176,7 @@ asyncio.run(main())
 
 ## Configuration
 
-Create a `.autodoc.yaml` file in your project root:
+Create a `.autodoc.yml` file in your project root (or run `autodoc init`):
 
 ```yaml
 # LLM provider settings
@@ -311,6 +348,48 @@ autodoc query-graph --all
 make build-graph
 make visualize-graph
 make query-graph
+```
+
+#### Neo4j Setup
+
+The graph features require a running Neo4j instance with the Graph Data Science (GDS) plugin.
+
+**Quick Start with Docker Compose:**
+
+```bash
+# Start Neo4j with GDS plugin
+docker compose up -d
+
+# Verify it's running
+docker compose ps
+
+# View logs
+docker compose logs -f neo4j
+```
+
+After starting, Neo4j will be available at:
+- Browser UI: http://localhost:7474
+- Bolt protocol: bolt://localhost:7687
+- Default credentials: `neo4j` / `autodoc123`
+
+**Manual Docker Setup:**
+
+```bash
+docker run -d \
+  --name autodoc-neo4j \
+  -p 7474:7474 -p 7687:7687 \
+  -e NEO4J_AUTH=neo4j/autodoc123 \
+  -e NEO4J_PLUGINS='["graph-data-science"]' \
+  -e NEO4J_dbms_security_procedures_unrestricted=gds.* \
+  neo4j:5-community
+```
+
+**Configure environment:**
+
+```bash
+export NEO4J_URI=bolt://localhost:7687
+export NEO4J_USER=neo4j
+export NEO4J_PASSWORD=autodoc123
 ```
 
 #### Graph Dependencies
