@@ -13,12 +13,17 @@ Usage:
 """
 
 import json
+import logging
+import traceback
+from functools import wraps
 from pathlib import Path
-from typing import Optional
+from typing import Any, Callable, Optional
 
 from fastmcp import FastMCP
 
 from .config import AutodocConfig
+
+log = logging.getLogger(__name__)
 
 # Initialize FastMCP server
 # Note: FastMCP 2.x uses 'instructions' instead of 'description'
@@ -28,12 +33,55 @@ mcp = FastMCP(
 )
 
 
+def safe_json_response(func: Callable) -> Callable:
+    """Decorator to ensure MCP tools always return valid JSON responses.
+
+    Catches exceptions and returns structured error responses instead of crashing.
+    """
+
+    @wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> str:
+        try:
+            return func(*args, **kwargs)
+        except json.JSONDecodeError as e:
+            log.error(f"JSON decode error in {func.__name__}: {e}")
+            return json.dumps({
+                "error": "Invalid JSON data encountered",
+                "details": str(e),
+                "tool": func.__name__,
+            })
+        except FileNotFoundError as e:
+            log.warning(f"File not found in {func.__name__}: {e}")
+            return json.dumps({
+                "error": "Required file not found",
+                "details": str(e),
+                "hint": "Run 'autodoc analyze' or 'autodoc pack build' first",
+                "tool": func.__name__,
+            })
+        except Exception as e:
+            log.error(f"Unexpected error in {func.__name__}: {e}\n{traceback.format_exc()}")
+            return json.dumps({
+                "error": "Unexpected error occurred",
+                "details": str(e),
+                "tool": func.__name__,
+                "hint": "Check server logs for details",
+            })
+
+    return wrapper
+
+
 def get_config() -> AutodocConfig:
     """Load autodoc configuration."""
-    return AutodocConfig.load()
+    try:
+        return AutodocConfig.load()
+    except Exception as e:
+        log.error(f"Failed to load config: {e}")
+        # Return default config to avoid crashes
+        return AutodocConfig()
 
 
 @mcp.tool
+@safe_json_response
 def capabilities() -> str:
     """Check autodoc capabilities and tool availability.
 
@@ -130,6 +178,7 @@ def capabilities() -> str:
 
 
 @mcp.tool
+@safe_json_response
 def pack_list(
     tag: Optional[str] = None,
     security: Optional[str] = None,
@@ -174,6 +223,7 @@ def pack_list(
 
 
 @mcp.tool
+@safe_json_response
 def pack_info(
     name: str,
     include_dependencies: bool = False,
@@ -233,6 +283,7 @@ def pack_info(
 
 
 @mcp.tool
+@safe_json_response
 def pack_query(
     name: str,
     query: str,
@@ -347,7 +398,7 @@ def pack_query(
                     "type": entity.get("entity_type", "unknown"),
                     "name": entity.get("name", "unknown"),
                     "file": entity.get("file", ""),
-                    "line": entity.get("start_line", 0),
+                    "line": entity.get("line_number", entity.get("start_line", 0)),
                     "score": round(score / 20.0, 2),
                     "preview": entity.get("docstring", "")[:200] if entity.get("docstring") else "",
                 }
@@ -447,7 +498,7 @@ def pack_entities(
                 "type": e.get("entity_type", "unknown"),
                 "name": e.get("name", "unknown"),
                 "file": e.get("file", ""),
-                "line": e.get("start_line", 0),
+                "line": e.get("line_number", e.get("start_line", 0)),
                 "docstring": e.get("docstring", "")[:200] if e.get("docstring") else None,
             }
         )
@@ -464,6 +515,7 @@ def pack_entities(
 
 
 @mcp.tool
+@safe_json_response
 def impact_analysis(
     files: str,
     pack_filter: Optional[str] = None,
@@ -545,7 +597,7 @@ def impact_analysis(
                                         "type": entity.get("entity_type", "unknown"),
                                         "name": entity.get("name", "unknown"),
                                         "file": entity_file,
-                                        "line": entity.get("start_line", 0),
+                                        "line": entity.get("line_number", entity.get("start_line", 0)),
                                     }
                                 )
                                 break
@@ -970,6 +1022,7 @@ def feature_files(feature_id: int) -> str:
 
 
 @mcp.tool
+@safe_json_response
 def analyze(
     path: str = ".",
     save: bool = True,
@@ -1026,6 +1079,7 @@ def analyze(
 
 
 @mcp.tool
+@safe_json_response
 def search(
     query: str,
     limit: int = 10,

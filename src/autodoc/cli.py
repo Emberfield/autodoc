@@ -366,6 +366,159 @@ def search(query, limit, type, file, regex):
 
 
 @cli.command()
+@click.argument("file_path", type=click.Path(exists=True))
+@click.option("--limit", "-n", default=5, help="Number of similar items to show")
+@click.option("--type", "-t", "type_filter", help="Filter by entity type (file, function, class)")
+@click.option("--json", "output_json", is_flag=True, help="Output as JSON for programmatic use")
+def similar(file_path, limit, type_filter, output_json):
+    """Find files or entities similar to the given file.
+
+    Uses embeddings to find semantically similar code. Useful for:
+    - Finding similar implementations to use as patterns
+    - Discovering related functionality across the codebase
+    - Understanding code duplication and opportunities for abstraction
+
+    Examples:
+      autodoc similar src/lib/mail/partner-gift-email.ts
+      autodoc similar src/auth/login.py --limit 10
+      autodoc similar src/api/users.ts --type function --json
+    """
+    from pathlib import Path as PathLib
+
+    config = AutodocConfig.load()
+    target_path = PathLib(file_path).resolve()
+
+    # Check if we have embeddings
+    chromadb_dir = PathLib(config.embeddings.persist_directory)
+    if not chromadb_dir.exists():
+        console.print("[red]No embeddings found. Run 'autodoc analyze' first.[/red]")
+        return
+
+    try:
+        from .chromadb_embedder import ChromaDBEmbedder
+
+        embedder = ChromaDBEmbedder(
+            persist_directory=str(chromadb_dir),
+            embedding_model=config.embeddings.chromadb_model,
+        )
+    except ImportError:
+        console.print("[red]ChromaDB not available. Install with: pip install chromadb[/red]")
+        return
+
+    # Load the cache to get entity info for the target file
+    cache_path = PathLib("autodoc_cache.json")
+    if not cache_path.exists():
+        console.print("[red]No analysis cache found. Run 'autodoc analyze' first.[/red]")
+        return
+
+    with open(cache_path) as f:
+        cache_data = json.load(f)
+        all_entities = cache_data.get("entities", [])
+
+    # Find entities in the target file
+    target_entities = [
+        e for e in all_entities
+        if PathLib(e.get("file_path", "")).resolve() == target_path
+    ]
+
+    if not target_entities:
+        console.print(f"[yellow]No entities found in {file_path}[/yellow]")
+        console.print("[dim]Make sure the file has been analyzed.[/dim]")
+        return
+
+    # Create a combined text from the target file's entities for similarity search
+    target_text = ""
+    for entity in target_entities:
+        target_text += f"{entity.get('type', '')} {entity.get('name', '')} "
+        if entity.get("docstring"):
+            target_text += f"{entity['docstring']} "
+        if entity.get("code"):
+            # Just use first 200 chars of code for similarity
+            target_text += f"{entity['code'][:200]} "
+
+    if not target_text.strip():
+        console.print("[yellow]Could not extract content from file for similarity search.[/yellow]")
+        return
+
+    # Search for similar entities
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        search_results = loop.run_until_complete(
+            embedder.search(target_text, limit=limit + 10)  # Get extra to filter out self
+        )
+        loop.close()
+    except Exception as e:
+        console.print(f"[red]Error searching embeddings: {e}[/red]")
+        return
+
+    # Filter out entities from the same file and apply type filter
+    similar_items = []
+    seen_files = set()
+
+    for r in search_results:
+        entity = r["entity"]
+        entity_path = PathLib(entity.get("file_path", "")).resolve()
+
+        # Skip if same file
+        if entity_path == target_path:
+            continue
+
+        # Apply type filter
+        if type_filter and entity.get("type") != type_filter:
+            continue
+
+        # For file-level similarity, group by file
+        file_key = str(entity_path)
+        if file_key not in seen_files:
+            seen_files.add(file_key)
+            similar_items.append({
+                "file": str(entity_path),
+                "entity_type": entity.get("type"),
+                "entity_name": entity.get("name"),
+                "line": entity.get("line_number", 0),
+                "similarity": round(r["similarity"], 3),
+                "preview": (entity.get("docstring") or "")[:100],
+            })
+
+        if len(similar_items) >= limit:
+            break
+
+    if not similar_items:
+        console.print(f"[yellow]No similar files found for {file_path}[/yellow]")
+        return
+
+    # Output
+    if output_json:
+        print(json.dumps({
+            "query_file": str(target_path),
+            "similar": similar_items,
+            "total": len(similar_items),
+        }, indent=2))
+        return
+
+    # Rich console output
+    console.print(f"\n[bold]Files similar to [cyan]{PathLib(file_path).name}[/cyan]:[/bold]\n")
+
+    table = Table(show_header=True)
+    table.add_column("File", style="green")
+    table.add_column("Entity", style="cyan")
+    table.add_column("Line", style="dim")
+    table.add_column("Similarity", style="yellow")
+
+    for item in similar_items:
+        table.add_row(
+            PathLib(item["file"]).name,
+            f"{item['entity_type']} {item['entity_name']}",
+            str(item["line"]),
+            f"{item['similarity']:.2f}",
+        )
+
+    console.print(table)
+    console.print(f"\n[dim]Found {len(similar_items)} similar items[/dim]")
+
+
+@cli.command()
 @click.argument("cache1", type=click.Path(exists=True), default="autodoc_cache.json")
 @click.argument("cache2", type=click.Path(exists=True), required=False)
 @click.option("--detailed", "-d", is_flag=True, help="Show detailed differences")
@@ -2110,7 +2263,7 @@ def pack_build(name, build_all, output, embeddings, summary, dry_run, no_cache):
                                     type=entity.get("entity_type", "function"),
                                     name=entity.get("name", "unknown"),
                                     file_path=entity_file,
-                                    line_number=entity.get("start_line", 0),
+                                    line_number=entity.get("line_number", entity.get("start_line", 0)),
                                     docstring=entity.get("docstring"),
                                     code=entity.get("code", ""),
                                 )
@@ -2331,7 +2484,7 @@ def pack_query(name, query, limit, keyword, output_json):
                         "entity_type": r["entity"]["type"],
                         "name": r["entity"]["name"],
                         "file": r["entity"]["file_path"],
-                        "start_line": r["entity"]["line_number"],
+                        "line_number": r["entity"]["line_number"],
                         "description": r.get("document", "")[:200],
                     }
                     results.append((entity_data, r["similarity"]))
@@ -2401,7 +2554,7 @@ def pack_query(name, query, limit, keyword, output_json):
                     "type": entity.get("entity_type", "unknown"),
                     "name": entity.get("name", "unknown"),
                     "file": entity.get("file", ""),
-                    "line": entity.get("start_line", 0),
+                    "line": entity.get("line_number", entity.get("start_line", 0)),
                     "score": round(score, 3),
                     "preview": (entity.get("description") or entity.get("docstring") or "")[:200],
                 }
@@ -2425,7 +2578,7 @@ def pack_query(name, query, limit, keyword, output_json):
         etype = entity.get("entity_type", "unknown")
         ename = entity.get("name", "unknown")
         efile = PathLib(entity.get("file", "")).name
-        line = entity.get("start_line", "?")
+        line = entity.get("line_number", entity.get("start_line", "?"))
         similarity = f"{score:.2f}" if use_semantic else f"{score:.1f}"
 
         console.print(f"[cyan]{etype}[/cyan] [bold]{ename}[/bold] [dim](score: {similarity})[/dim]")
@@ -2923,7 +3076,7 @@ def impact_analysis(files, output_json, pack):
                                         "type": entity.get("entity_type", "unknown"),
                                         "name": entity.get("name", "unknown"),
                                         "file": entity_file,
-                                        "line": entity.get("start_line", 0),
+                                        "line": entity.get("line_number", entity.get("start_line", 0)),
                                     }
                                 )
                                 break
