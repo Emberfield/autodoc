@@ -2877,36 +2877,252 @@ def pack_query(name, query, limit, keyword, output_json):
         console.print()
 
 
+def _smart_pack_suggestions(base_path, min_entities=10, min_files=1):
+    """Generate smart pack suggestions using the analysis cache.
+
+    Uses entity counts and file naming patterns to create meaningful packs:
+    1. Large files (>20 entities) get their own pack
+    2. Files grouped by common suffixes (*_server.py, *_analyzer.py)
+    3. Remaining files grouped by directory structure
+    """
+    from collections import defaultdict
+    from pathlib import Path as PathLib
+
+    cache_file = PathLib("autodoc_cache.json")
+    if not cache_file.exists():
+        return None  # Fall back to directory patterns
+
+    with open(cache_file) as f:
+        cache_data = json.load(f)
+        entities = cache_data.get("entities", [])
+
+    if not entities:
+        return None
+
+    # Group entities by file
+    entities_by_file = defaultdict(list)
+    for entity in entities:
+        file_path = entity.get("file_path", entity.get("file", ""))
+        if file_path:
+            entities_by_file[file_path].append(entity)
+
+    # Analyze file patterns
+    suggested_packs = []
+    files_assigned = set()
+
+    # Known suffix patterns for grouping
+    suffix_patterns = {
+        "_server": ("servers", "Server Components", "Server and API components"),
+        "_client": ("clients", "Client Components", "Client and SDK components"),
+        "_analyzer": ("analyzers", "Analyzers", "Code and data analyzers"),
+        "_parser": ("parsers", "Parsers", "File and data parsers"),
+        "_embedder": ("embeddings", "Embeddings", "Embedding and vector providers"),
+        "_handler": ("handlers", "Handlers", "Request and event handlers"),
+        "_manager": ("managers", "Managers", "Resource and state managers"),
+        "_service": ("services", "Services", "Business logic services"),
+        "_controller": ("controllers", "Controllers", "Request controllers"),
+        "_model": ("models", "Models", "Data models"),
+        "_schema": ("schemas", "Schemas", "Data schemas"),
+        "_util": ("utils", "Utilities", "Utility functions"),
+        "_helper": ("helpers", "Helpers", "Helper functions"),
+        "_test": ("tests", "Tests", "Test files"),
+        "_config": ("config", "Configuration", "Configuration modules"),
+    }
+
+    # Phase 1: Create packs for large files (>20 entities)
+    large_file_threshold = 20
+    for file_path, file_entities in entities_by_file.items():
+        if len(file_entities) >= large_file_threshold:
+            path_obj = PathLib(file_path)
+            file_name = path_obj.stem  # filename without extension
+
+            # Skip __init__, __main__, etc.
+            if file_name.startswith("__"):
+                continue
+
+            # Make file path relative to base_path if possible
+            try:
+                rel_path = path_obj.relative_to(base_path)
+            except ValueError:
+                rel_path = path_obj
+
+            pack_name = file_name.replace("_", "-")
+            display_name = file_name.replace("_", " ").title()
+
+            suggested_packs.append({
+                "name": pack_name,
+                "display_name": display_name,
+                "description": f"Large module with {len(file_entities)} entities",
+                "files": [str(rel_path)],
+                "file_count": 1,
+                "entity_count": len(file_entities),
+                "tags": ["module"],
+                "tables": [],
+                "dependencies": [],
+            })
+            files_assigned.add(file_path)
+
+    # Phase 2: Group files by suffix patterns
+    suffix_groups = defaultdict(list)
+    for file_path in entities_by_file.keys():
+        if file_path in files_assigned:
+            continue
+
+        path_obj = PathLib(file_path)
+        file_stem = path_obj.stem.lower()
+
+        for suffix, (pack_name, display, desc) in suffix_patterns.items():
+            if file_stem.endswith(suffix) or suffix.lstrip("_") in file_stem:
+                suffix_groups[pack_name].append(file_path)
+                break
+
+    for pack_name, files in suffix_groups.items():
+        if len(files) >= min_files:
+            pattern_info = None
+            for suffix, info in suffix_patterns.items():
+                if info[0] == pack_name:
+                    pattern_info = info
+                    break
+
+            total_entities = sum(len(entities_by_file[f]) for f in files)
+
+            # Make paths relative
+            rel_files = []
+            for f in files:
+                try:
+                    rel_files.append(str(PathLib(f).relative_to(base_path)))
+                except ValueError:
+                    rel_files.append(f)
+
+            suggested_packs.append({
+                "name": pack_name,
+                "display_name": pattern_info[1] if pattern_info else pack_name.title(),
+                "description": pattern_info[2] if pattern_info else f"Files matching {pack_name} pattern",
+                "files": rel_files,
+                "file_count": len(files),
+                "entity_count": total_entities,
+                "tags": [pack_name],
+                "tables": [],
+                "dependencies": [],
+            })
+            files_assigned.update(files)
+
+    # Phase 3: Group remaining files by parent directory
+    dir_groups = defaultdict(list)
+    for file_path in entities_by_file.keys():
+        if file_path in files_assigned:
+            continue
+
+        path_obj = PathLib(file_path)
+        # Get the immediate parent directory name
+        parent_name = path_obj.parent.name
+
+        # Skip generic names
+        if parent_name in ["src", "lib", "app", "."]:
+            # Try grandparent
+            grandparent = path_obj.parent.parent.name
+            if grandparent and grandparent not in ["src", "lib", ".", ""]:
+                parent_name = grandparent
+
+        if parent_name and parent_name not in [".", ""]:
+            dir_groups[parent_name].append(file_path)
+
+    for dir_name, files in dir_groups.items():
+        # Skip if too few files
+        if len(files) < min_files:
+            continue
+
+        # Skip test directories (handled separately)
+        if dir_name in ["tests", "test", "__pycache__"]:
+            continue
+
+        total_entities = sum(len(entities_by_file[f]) for f in files)
+
+        # Skip if too few entities
+        if total_entities < min_entities:
+            continue
+
+        # Make paths relative
+        rel_files = []
+        for f in files:
+            try:
+                rel_files.append(str(PathLib(f).relative_to(base_path)))
+            except ValueError:
+                rel_files.append(f)
+
+        pack_name = dir_name.lower().replace("_", "-")
+        display_name = dir_name.replace("_", " ").replace("-", " ").title()
+
+        suggested_packs.append({
+            "name": pack_name,
+            "display_name": display_name,
+            "description": f"Module: {dir_name}",
+            "files": rel_files,
+            "file_count": len(files),
+            "entity_count": total_entities,
+            "tags": ["module"],
+            "tables": [],
+            "dependencies": [],
+        })
+        files_assigned.update(files)
+
+    # Sort by entity count (most entities first)
+    suggested_packs.sort(key=lambda p: p.get("entity_count", 0), reverse=True)
+
+    return suggested_packs if suggested_packs else None
+
+
 @pack.command("auto-generate")
 @click.option("--save", is_flag=True, help="Save generated packs to .autodoc.yml")
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON for programmatic use")
-@click.option("--min-files", default=3, help="Minimum files for a pack (default: 3)")
+@click.option("--min-files", default=1, help="Minimum files for a pack (default: 1)")
+@click.option("--min-entities", default=10, help="Minimum entities for directory-based packs (default: 10)")
 @click.option(
     "--root",
     "root_path",
     type=click.Path(exists=True),
     help="Root directory to scan (default: current directory)",
 )
-def pack_auto_generate(save, output_json, min_files, root_path):
+@click.option("--directory-only", is_flag=True, help="Use only directory patterns (skip smart analysis)")
+def pack_auto_generate(save, output_json, min_files, min_entities, root_path, directory_only):
     """Automatically detect and suggest context packs based on codebase structure.
 
-    Analyzes your codebase to detect:
+    Smart mode (default): Uses autodoc_cache.json to create meaningful packs:
+    - Large files (>20 entities) get their own pack
+    - Files grouped by naming patterns (*_server.py, *_analyzer.py)
+    - Remaining files grouped by directory
+
+    Directory mode (--directory-only): Falls back to directory patterns:
     - Common directory patterns (src/, api/, tests/, models/, etc.)
-    - Language markers (setup.py, package.json, go.mod, Cargo.toml)
-    - Framework patterns (Django apps, FastAPI routers, React components)
+    - Framework patterns (Django apps, FastAPI routers)
+
+    Run 'autodoc analyze --save' first for smart suggestions.
 
     Use --save to append suggested packs to .autodoc.yml.
     Use --json for programmatic output (e.g., Temporal workflows).
-    Use --root to specify a different base directory (useful in Docker/CI).
     """
     from pathlib import Path as PathLib
 
     config = AutodocConfig.load()
     base_path = PathLib(root_path) if root_path else PathLib.cwd()
     suggested_packs = []
+    used_smart_mode = False
 
-    # Known pack patterns to detect
-    pack_patterns = [
+    # Initialize for output
+    detected_language = None
+
+    # Try smart suggestions first (unless directory-only mode)
+    if not directory_only:
+        smart_packs = _smart_pack_suggestions(base_path, min_entities=min_entities, min_files=min_files)
+        if smart_packs:
+            suggested_packs = smart_packs
+            used_smart_mode = True
+
+    # Fall back to directory patterns if no smart suggestions
+    if not suggested_packs:
+
+        # Known pack patterns to detect
+        pack_patterns = [
         # Standard code organization
         {
             "pattern": "src/**/*.py",
@@ -3063,133 +3279,87 @@ def pack_auto_generate(save, output_json, min_files, root_path):
             "desc": "State management",
             "tags": ["frontend"],
         },
-    ]
+        ]
 
-    # Framework-specific patterns (reserved for future use)
-    _framework_patterns = [
-        # Django
-        {
-            "marker": "**/models.py",
-            "adjacent": "**/views.py",
-            "name_suffix": "-app",
-            "framework": "django",
-            "tags": ["django"],
-        },
-        {
-            "marker": "**/admin.py",
-            "name_suffix": "-admin",
-            "display_suffix": "Admin",
-            "framework": "django",
-            "tags": ["django", "admin"],
-        },
-        # FastAPI
-        {
-            "marker": "**/routers/**/*.py",
-            "name": "fastapi-routers",
-            "display": "FastAPI Routers",
-            "framework": "fastapi",
-            "tags": ["fastapi", "api"],
-        },
-        # React
-        {
-            "marker": "src/components/**/*.tsx",
-            "name": "react-components",
-            "display": "React Components",
-            "framework": "react",
-            "tags": ["react", "frontend"],
-        },
-    ]
+        # Detect language from markers
+        language_markers = [
+            ("setup.py", "python"),
+            ("pyproject.toml", "python"),
+            ("requirements.txt", "python"),
+            ("package.json", "javascript"),
+            ("tsconfig.json", "typescript"),
+            ("go.mod", "go"),
+            ("Cargo.toml", "rust"),
+            ("pom.xml", "java"),
+            ("build.gradle", "java"),
+        ]
 
-    # Detect language from markers
-    detected_language = None
-    language_markers = [
-        ("setup.py", "python"),
-        ("pyproject.toml", "python"),
-        ("requirements.txt", "python"),
-        ("package.json", "javascript"),
-        ("tsconfig.json", "typescript"),
-        ("go.mod", "go"),
-        ("Cargo.toml", "rust"),
-        ("pom.xml", "java"),
-        ("build.gradle", "java"),
-    ]
+        for marker, lang in language_markers:
+            if (base_path / marker).exists():
+                detected_language = lang
+                break
 
-    for marker, lang in language_markers:
-        if (base_path / marker).exists():
-            detected_language = lang
-            break
+        if not output_json:
+            console.print("[bold]Scanning codebase for pack suggestions...[/bold]")
+            if detected_language:
+                console.print(f"[dim]Detected language: {detected_language}[/dim]\n")
 
-    if not output_json:
-        console.print("[bold]Scanning codebase for pack suggestions...[/bold]")
-        if detected_language:
-            console.print(f"[dim]Detected language: {detected_language}[/dim]\n")
+        # Check each pattern
+        existing_pack_names = {p.name for p in config.context_packs}
 
-    # Filter patterns by detected language (reserved for future use)
-    _language_extensions = {
-        "python": [".py"],
-        "javascript": [".js", ".jsx"],
-        "typescript": [".ts", ".tsx"],
-        "go": [".go"],
-        "rust": [".rs"],
-        "java": [".java"],
-    }
+        for pack_info in pack_patterns:
+            pattern = pack_info["pattern"]
 
-    # Check each pattern
-    existing_pack_names = {p.name for p in config.context_packs}
+            # Count matching files
+            matching_files = list(base_path.glob(pattern))
 
-    for pack_info in pack_patterns:
-        pattern = pack_info["pattern"]
+            if len(matching_files) >= min_files:
+                # Skip if pack already exists
+                if pack_info["name"] in existing_pack_names:
+                    continue
 
-        # Count matching files
-        matching_files = list(base_path.glob(pattern))
-
-        if len(matching_files) >= min_files:
-            # Skip if pack already exists
-            if pack_info["name"] in existing_pack_names:
-                continue
-
-            suggested_packs.append(
-                {
-                    "name": pack_info["name"],
-                    "display_name": pack_info["display"],
-                    "description": pack_info["desc"],
-                    "files": [pattern],
-                    "file_count": len(matching_files),
-                    "tags": pack_info.get("tags", []),
-                    "tables": [],
-                    "dependencies": [],
-                }
-            )
-
-    # Detect Django apps (directories with models.py)
-    for models_file in base_path.glob("**/models.py"):
-        app_dir = models_file.parent
-        app_name = app_dir.name.lower()
-
-        # Skip common non-app directories
-        if app_name in ["migrations", "tests", "test", "__pycache__"]:
-            continue
-
-        # Check if it looks like a Django app
-        has_views = (app_dir / "views.py").exists()
-        has_urls = (app_dir / "urls.py").exists()
-
-        if (has_views or has_urls) and app_name not in existing_pack_names:
-            # Count Python files in this app
-            py_files = list(app_dir.glob("**/*.py"))
-            if len(py_files) >= min_files:
                 suggested_packs.append(
                     {
-                        "name": app_name,
-                        "display_name": f"{app_name.replace('_', ' ').title()} App",
-                        "description": f"Django app for {app_name.replace('_', ' ')}",
-                        "files": [f"{app_dir.relative_to(base_path)}/**/*.py"],
-                        "file_count": len(py_files),
-                        "tags": ["django", "app"],
+                        "name": pack_info["name"],
+                        "display_name": pack_info["display"],
+                        "description": pack_info["desc"],
+                        "files": [pattern],
+                        "file_count": len(matching_files),
+                        "tags": pack_info.get("tags", []),
                         "tables": [],
                         "dependencies": [],
                     }
                 )
+
+        # Detect Django apps (directories with models.py)
+        for models_file in base_path.glob("**/models.py"):
+            app_dir = models_file.parent
+            app_name = app_dir.name.lower()
+
+            # Skip common non-app directories
+            if app_name in ["migrations", "tests", "test", "__pycache__"]:
+                continue
+
+            # Check if it looks like a Django app
+            has_views = (app_dir / "views.py").exists()
+            has_urls = (app_dir / "urls.py").exists()
+
+            if (has_views or has_urls) and app_name not in existing_pack_names:
+                # Count Python files in this app
+                py_files = list(app_dir.glob("**/*.py"))
+                if len(py_files) >= min_files:
+                    suggested_packs.append(
+                        {
+                            "name": app_name,
+                            "display_name": f"{app_name.replace('_', ' ').title()} App",
+                            "description": f"Django app for {app_name.replace('_', ' ')}",
+                            "files": [f"{app_dir.relative_to(base_path)}/**/*.py"],
+                            "file_count": len(py_files),
+                            "tags": ["django", "app"],
+                            "tables": [],
+                            "dependencies": [],
+                        }
+                    )
 
     if not suggested_packs:
         if output_json:
