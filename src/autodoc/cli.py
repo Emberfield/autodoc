@@ -519,6 +519,187 @@ def similar(file_path, limit, type_filter, output_json):
 
 
 @cli.command()
+@click.argument("file_path", type=click.Path(exists=True))
+@click.option("--reverse", "-r", is_flag=True, help="Show what imports this file (reverse deps)")
+@click.option("--json", "output_json", is_flag=True, help="Output as JSON for programmatic use")
+def deps(file_path, reverse, output_json):
+    """Show dependencies for a file.
+
+    By default, shows what the file imports (its dependencies).
+    With --reverse, shows what files import this file (dependents).
+
+    Examples:
+      autodoc deps src/lib/mail/sender.ts           # What does sender.ts import?
+      autodoc deps src/lib/mail/sender.ts --reverse # What imports sender.ts?
+      autodoc deps src/api/users.py --json          # JSON output
+    """
+    import ast
+    import re
+    from pathlib import Path as PathLib
+
+    target_path = PathLib(file_path).resolve()
+    target_name = target_path.stem  # filename without extension
+
+    if not target_path.exists():
+        console.print(f"[red]File not found: {file_path}[/red]")
+        return
+
+    # Load cache to get all analyzed files
+    cache_path = PathLib("autodoc_cache.json")
+    if not cache_path.exists():
+        console.print("[red]No analysis cache found. Run 'autodoc analyze' first.[/red]")
+        return
+
+    with open(cache_path) as f:
+        cache_data = json.load(f)
+        all_entities = cache_data.get("entities", [])
+
+    # Get unique file paths from entities
+    all_files = set()
+    for entity in all_entities:
+        fp = entity.get("file_path", "")
+        if fp:
+            all_files.add(PathLib(fp).resolve())
+
+    def extract_imports_from_file(fpath: PathLib) -> list:
+        """Extract import statements from a Python or TypeScript file."""
+        imports = []
+        try:
+            content = fpath.read_text(encoding="utf-8")
+
+            if fpath.suffix == ".py":
+                # Python imports
+                tree = ast.parse(content)
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.Import):
+                        for alias in node.names:
+                            imports.append({"type": "import", "module": alias.name, "name": alias.asname or alias.name})
+                    elif isinstance(node, ast.ImportFrom):
+                        module = node.module or ""
+                        for alias in node.names:
+                            imports.append({"type": "from", "module": module, "name": alias.name})
+
+            elif fpath.suffix in (".ts", ".tsx", ".js", ".jsx"):
+                # TypeScript/JavaScript imports (basic regex parsing)
+                # Match: import { x } from 'y' or import x from 'y' or import 'y'
+                import_patterns = [
+                    r"import\s+\{([^}]+)\}\s+from\s+['\"]([^'\"]+)['\"]",  # named imports
+                    r"import\s+(\w+)\s+from\s+['\"]([^'\"]+)['\"]",  # default import
+                    r"import\s+['\"]([^'\"]+)['\"]",  # side-effect import
+                    r"import\s+\*\s+as\s+(\w+)\s+from\s+['\"]([^'\"]+)['\"]",  # namespace import
+                ]
+
+                for pattern in import_patterns:
+                    for match in re.finditer(pattern, content):
+                        groups = match.groups()
+                        if len(groups) == 2:
+                            names, module = groups
+                            if "{" not in pattern:  # default or namespace
+                                imports.append({"type": "import", "module": module, "name": names})
+                            else:  # named imports
+                                for name in names.split(","):
+                                    name = name.strip().split(" as ")[0].strip()
+                                    if name:
+                                        imports.append({"type": "from", "module": module, "name": name})
+                        elif len(groups) == 1:
+                            imports.append({"type": "import", "module": groups[0], "name": None})
+
+        except Exception as e:
+            pass  # Silently skip files that can't be parsed
+
+        return imports
+
+    if reverse:
+        # Find what files import this file
+        dependents = []
+        target_patterns = [
+            target_name,  # filename without extension
+            str(target_path.relative_to(PathLib.cwd()) if target_path.is_relative_to(PathLib.cwd()) else target_path),
+        ]
+
+        for fpath in all_files:
+            if fpath == target_path:
+                continue
+
+            imports = extract_imports_from_file(fpath)
+            for imp in imports:
+                module = imp.get("module", "")
+                # Check if any import references our target file
+                if any(pattern in module for pattern in target_patterns) or module.endswith(target_name):
+                    dependents.append({
+                        "file": str(fpath),
+                        "import_type": imp.get("type"),
+                        "import_name": imp.get("name"),
+                        "import_module": module,
+                    })
+                    break  # Only count each file once
+
+        if output_json:
+            print(json.dumps({
+                "target": str(target_path),
+                "direction": "reverse",
+                "dependents": dependents,
+                "total": len(dependents),
+            }, indent=2))
+            return
+
+        if not dependents:
+            console.print(f"[yellow]No files found that import {PathLib(file_path).name}[/yellow]")
+            return
+
+        console.print(f"\n[bold]Files that import [cyan]{PathLib(file_path).name}[/cyan]:[/bold]\n")
+        table = Table(show_header=True)
+        table.add_column("File", style="green")
+        table.add_column("Import Statement", style="dim")
+
+        for dep in dependents:
+            import_stmt = f"{dep['import_type']} {dep['import_name'] or ''} from {dep['import_module']}"
+            table.add_row(PathLib(dep["file"]).name, import_stmt.strip())
+
+        console.print(table)
+        console.print(f"\n[dim]Found {len(dependents)} files that import this[/dim]")
+
+    else:
+        # Show what this file imports
+        imports = extract_imports_from_file(target_path)
+
+        if output_json:
+            print(json.dumps({
+                "target": str(target_path),
+                "direction": "forward",
+                "imports": imports,
+                "total": len(imports),
+            }, indent=2))
+            return
+
+        if not imports:
+            console.print(f"[yellow]No imports found in {PathLib(file_path).name}[/yellow]")
+            return
+
+        console.print(f"\n[bold]Imports in [cyan]{PathLib(file_path).name}[/cyan]:[/bold]\n")
+
+        # Group by module
+        by_module = {}
+        for imp in imports:
+            module = imp.get("module", "unknown")
+            if module not in by_module:
+                by_module[module] = []
+            if imp.get("name"):
+                by_module[module].append(imp["name"])
+
+        table = Table(show_header=True)
+        table.add_column("Module", style="green")
+        table.add_column("Imports", style="cyan")
+
+        for module, names in sorted(by_module.items()):
+            names_str = ", ".join(names) if names else "(entire module)"
+            table.add_row(module, names_str)
+
+        console.print(table)
+        console.print(f"\n[dim]Found {len(imports)} imports from {len(by_module)} modules[/dim]")
+
+
+@cli.command()
 @click.argument("cache1", type=click.Path(exists=True), default="autodoc_cache.json")
 @click.argument("cache2", type=click.Path(exists=True), required=False)
 @click.option("--detailed", "-d", is_flag=True, help="Show detailed differences")
