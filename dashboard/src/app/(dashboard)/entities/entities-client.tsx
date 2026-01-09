@@ -278,10 +278,10 @@ export function EntitiesPageClient({ entities, enrichment }: EntitiesPageClientP
                         )}
 
                         {/* Usage Examples */}
-                        {(enrichmentData?.usage_examples || enrichmentData?.examples)?.length > 0 && (
+                        {((enrichmentData?.usage_examples || enrichmentData?.examples)?.length ?? 0) > 0 && (
                           <div>
                             <h4 className="text-sm font-medium mb-2">Usage Example</h4>
-                            {(enrichmentData.usage_examples || enrichmentData.examples)?.map((example, j) => (
+                            {(enrichmentData?.usage_examples || enrichmentData?.examples)?.map((example, j) => (
                               <pre
                                 key={j}
                                 className="text-xs bg-muted p-3 rounded-lg overflow-x-auto font-mono"

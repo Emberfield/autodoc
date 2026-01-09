@@ -1,0 +1,21 @@
+# Autodoc Cloud API Dependencies
+
+# Web framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+
+# Supabase client
+supabase>=2.3.0
+
+# JWT handling
+PyJWT>=2.8.0
+
+# HTTP client (for GitHub API)
+httpx>=0.26.0
+
+# Pydantic for data validation
+pydantic>=2.5.0
+
+# Testing (dev dependencies)
+pytest>=8.0.0
+pytest-asyncio>=0.23.0

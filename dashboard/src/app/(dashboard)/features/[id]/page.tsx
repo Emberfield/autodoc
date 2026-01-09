@@ -248,10 +248,10 @@ export default async function FeatureDetailPage({ params }: PageProps) {
                               )}
 
                               {/* Usage Examples */}
-                              {(enrichment.usage_examples || enrichment.examples)?.length > 0 && (
+                              {((enrichment?.usage_examples || enrichment?.examples)?.length ?? 0) > 0 && (
                                 <div>
                                   <p className="text-sm font-medium mb-2">Usage Example</p>
-                                  {(enrichment.usage_examples || enrichment.examples)?.map((example, k) => (
+                                  {(enrichment?.usage_examples || enrichment?.examples)?.map((example, k) => (
                                     <pre
                                       key={k}
                                       className="text-xs bg-background p-3 rounded-lg overflow-x-auto font-mono border"
