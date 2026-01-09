@@ -67,7 +67,8 @@ def cli():
 )
 @click.option("--watch", "-w", is_flag=True, help="Watch for changes and re-analyze automatically")
 @click.option("--rust", is_flag=True, help="Use high-performance Rust analyzer (Python only)")
-def analyze(path, save, incremental, exclude, watch, rust):
+@click.option("--rebuild-packs", is_flag=True, help="Rebuild pack caches after analysis (keeps line numbers in sync)")
+def analyze(path, save, incremental, exclude, watch, rust, rebuild_packs):
     """Analyze a codebase"""
     autodoc = SimpleAutodoc()
 
@@ -103,6 +104,112 @@ def analyze(path, save, incremental, exclude, watch, rust):
 
         if save:
             autodoc.save()
+
+            # Rebuild pack caches if requested
+            if rebuild_packs:
+                _rebuild_pack_caches()
+
+
+def _rebuild_pack_caches():
+    """Rebuild pack caches with fresh entity data from autodoc_cache.json.
+
+    This is a lightweight rebuild that updates line numbers and entity data
+    without regenerating embeddings or LLM summaries.
+    """
+    import fnmatch
+    from pathlib import Path as PathLib
+
+    config = AutodocConfig.load()
+
+    if not config.context_packs:
+        console.print("[dim]No packs configured, skipping rebuild[/dim]")
+        return
+
+    cache_file = PathLib("autodoc_cache.json")
+    if not cache_file.exists():
+        console.print("[yellow]No cache file found, skipping pack rebuild[/yellow]")
+        return
+
+    # Load fresh entity data
+    with open(cache_file) as f:
+        cache_data = json.load(f)
+        all_entities = cache_data.get("entities", [])
+
+    output_dir = PathLib(".autodoc/packs")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    rebuilt_count = 0
+
+    for pack_config in config.context_packs:
+        pack_file = output_dir / f"{pack_config.name}.json"
+
+        # Find matching files
+        matched_files = []
+        base_path = PathLib.cwd()
+
+        for pattern in pack_config.files:
+            matched = list(base_path.glob(pattern))
+            matched_files.extend(matched)
+        matched_files = list(set(matched_files))
+
+        # Find entities matching pack patterns
+        entities_in_pack = []
+
+        def matches_pattern(file_path: str, pattern: str) -> bool:
+            """Check if a file path matches a glob pattern."""
+            file_path_obj = PathLib(file_path)
+            file_str = str(file_path_obj)
+
+            try:
+                if fnmatch.fnmatch(file_str, pattern):
+                    return True
+                if file_path_obj.match(pattern):
+                    return True
+                if "**" in pattern:
+                    base_pattern = pattern.split("**")[0].rstrip("/")
+                    if base_pattern and base_pattern in file_str:
+                        suffix = pattern.split("**")[-1].lstrip("/")
+                        if not suffix or fnmatch.fnmatch(file_str, f"*{suffix}"):
+                            return True
+            except Exception:
+                pass
+            return False
+
+        for entity in all_entities:
+            entity_file = entity.get("file_path", entity.get("file", ""))
+            for pattern in pack_config.files:
+                if matches_pattern(entity_file, pattern):
+                    entities_in_pack.append(entity)
+                    break
+
+        # Load existing pack data to preserve embeddings/summary info
+        existing_data = {}
+        if pack_file.exists():
+            with open(pack_file) as f:
+                existing_data = json.load(f)
+
+        # Rebuild pack data with fresh entities
+        pack_data = {
+            "name": pack_config.name,
+            "display_name": pack_config.display_name,
+            "description": pack_config.description,
+            "files": [str(f) for f in matched_files],
+            "entities": entities_in_pack,
+            "tables": pack_config.tables,
+            "dependencies": pack_config.dependencies,
+            "security_level": pack_config.security_level,
+            "tags": pack_config.tags,
+            # Preserve existing embeddings/summary flags
+            "has_embeddings": existing_data.get("has_embeddings", False),
+            "llm_summary": existing_data.get("llm_summary"),
+        }
+
+        with open(pack_file, "w") as f:
+            json.dump(pack_data, f, indent=2)
+
+        rebuilt_count += 1
+
+    console.print(f"[green]✓ Rebuilt {rebuilt_count} pack cache(s)[/green]")
 
 
 def _analyze_with_rust(autodoc, path, exclude_patterns):
@@ -3525,6 +3632,19 @@ def pack_diff(name, output_json):
     console.print(
         f"[yellow]⚠ Run 'autodoc pack build {name} --embeddings' to update index[/yellow]"
     )
+
+
+@pack.command("rebuild")
+def pack_rebuild():
+    """Rebuild all pack caches with fresh entity data.
+
+    This is a lightweight operation that updates line numbers and entities
+    from autodoc_cache.json without regenerating embeddings or LLM summaries.
+
+    Useful when you've run 'autodoc analyze --save' and want pack caches
+    to reflect the latest line numbers.
+    """
+    _rebuild_pack_caches()
 
 
 @pack.command("deps")
