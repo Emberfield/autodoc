@@ -416,6 +416,7 @@ def pack_query(
 
 
 @mcp.tool
+@safe_json_response
 def pack_files(name: str) -> str:
     """Get the list of files in a context pack.
 
@@ -457,6 +458,7 @@ def pack_files(name: str) -> str:
 
 
 @mcp.tool
+@safe_json_response
 def pack_entities(
     name: str,
     entity_type: Optional[str] = None,
@@ -630,6 +632,7 @@ def impact_analysis(
 
 
 @mcp.tool
+@safe_json_response
 def pack_status() -> str:
     """Get indexing status for all context packs.
 
@@ -682,6 +685,7 @@ def pack_status() -> str:
 
 
 @mcp.tool
+@safe_json_response
 def pack_deps(
     name: str,
     include_transitive: bool = False,
@@ -724,6 +728,7 @@ def pack_deps(
 
 
 @mcp.tool
+@safe_json_response
 def pack_diff(name: str) -> str:
     """Show what changed in a pack since it was last indexed.
 
@@ -814,6 +819,7 @@ def pack_diff(name: str) -> str:
 
 
 @mcp.tool
+@safe_json_response
 def pack_export_skill(
     name: str,
     format: str = "claude",
@@ -927,6 +933,7 @@ def get_pack_resource(name: str) -> str:
 
 
 @mcp.tool
+@safe_json_response
 def feature_list(named_only: bool = False) -> str:
     """List auto-detected code features.
 
@@ -980,6 +987,7 @@ def feature_list(named_only: bool = False) -> str:
 
 
 @mcp.tool
+@safe_json_response
 def feature_files(feature_id: int) -> str:
     """Get all files belonging to a detected feature.
 
@@ -1148,6 +1156,7 @@ def search(
 
 
 @mcp.tool
+@safe_json_response
 def enrich(
     entity_filter: Optional[str] = None,
     limit: int = 10,
@@ -1235,6 +1244,7 @@ def enrich(
 
 
 @mcp.tool
+@safe_json_response
 def check() -> str:
     """Check autodoc configuration and dependencies.
 
@@ -1291,6 +1301,7 @@ def check() -> str:
 
 
 @mcp.tool
+@safe_json_response
 def generate(
     output: str = "AUTODOC.md",
     include_private: bool = False,
@@ -1377,6 +1388,7 @@ def generate(
 
 
 @mcp.tool
+@safe_json_response
 def graph_build(
     clear: bool = False,
 ) -> str:
@@ -1447,6 +1459,7 @@ def graph_build(
 
 
 @mcp.tool
+@safe_json_response
 def graph_query(
     query_type: str = "overview",
 ) -> str:
