@@ -1,6 +1,8 @@
 """
 Local graph visualization without Neo4j dependency.
 Creates visualizations directly from autodoc entities.
+
+Output files are written to .autodoc/visualizations/ to avoid polluting the project root.
 """
 
 import json
@@ -9,6 +11,9 @@ from collections import defaultdict
 from pathlib import Path
 
 log = logging.getLogger(__name__)
+
+# Default output directory for visualizations
+VISUALIZATIONS_DIR = Path(".autodoc/visualizations")
 
 try:
     import matplotlib.pyplot as plt  # noqa: F401
@@ -40,8 +45,12 @@ class LocalCodeGraph:
             log.error(f"Cache file {self.entities_file} not found. Run 'make analyze' first.")
             self.entities = []
 
-    def create_file_dependency_graph(self, output_file: str = "file_dependencies.html"):
-        """Create an interactive file dependency graph"""
+    def create_file_dependency_graph(self, output_file: str = None):
+        """Create an interactive file dependency graph.
+
+        Args:
+            output_file: Path to output HTML file. Defaults to .autodoc/visualizations/file_dependencies.html
+        """
         if not GRAPH_DEPS_AVAILABLE:
             log.warning("Graph dependencies not available. Run 'make setup-graph'")
             return
@@ -49,6 +58,11 @@ class LocalCodeGraph:
         if not self.entities:
             log.warning("No entities loaded")
             return
+
+        # Default to .autodoc/visualizations/ directory
+        if output_file is None:
+            VISUALIZATIONS_DIR.mkdir(parents=True, exist_ok=True)
+            output_file = str(VISUALIZATIONS_DIR / "file_dependencies.html")
 
         # Group entities by file
         files = defaultdict(lambda: {"functions": [], "classes": []})
@@ -113,8 +127,12 @@ class LocalCodeGraph:
         log.info(f"File dependency graph saved to {output_file}")
         return output_file
 
-    def create_entity_network(self, output_file: str = "entity_network.html"):
-        """Create a network of code entities"""
+    def create_entity_network(self, output_file: str = None):
+        """Create a network of code entities.
+
+        Args:
+            output_file: Path to output HTML file. Defaults to .autodoc/visualizations/entity_network.html
+        """
         if not GRAPH_DEPS_AVAILABLE:
             log.warning("Graph dependencies not available. Run 'make setup-graph'")
             return
@@ -122,6 +140,11 @@ class LocalCodeGraph:
         if not self.entities:
             log.warning("No entities loaded")
             return
+
+        # Default to .autodoc/visualizations/ directory
+        if output_file is None:
+            VISUALIZATIONS_DIR.mkdir(parents=True, exist_ok=True)
+            output_file = str(VISUALIZATIONS_DIR / "entity_network.html")
 
         net = Network(height="800px", width="100%", bgcolor="#222222", font_color="white")
         net.barnes_hut()

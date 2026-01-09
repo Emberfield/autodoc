@@ -2,6 +2,8 @@
 """
 Graph database integration for Autodoc using Neo4j.
 Visualizes relationships between code entities.
+
+Output files are written to .autodoc/visualizations/ to avoid polluting the project root.
 """
 
 import logging
@@ -18,6 +20,9 @@ from neo4j.exceptions import ClientError, DatabaseError, ServiceUnavailable
 from pyvis.network import Network
 
 log = logging.getLogger(__name__)
+
+# Default output directory for visualizations
+VISUALIZATIONS_DIR = Path(".autodoc/visualizations")
 
 from .analyzer import CodeEntity
 from .autodoc import SimpleAutodoc
@@ -775,11 +780,20 @@ class CodeGraphVisualizer:
     def __init__(self, query: CodeGraphQuery):
         self.query = query
 
-    def create_interactive_graph(self, output_file: str = "code_graph.html"):
-        """Create an interactive graph visualization using pyvis"""
+    def create_interactive_graph(self, output_file: str = None):
+        """Create an interactive graph visualization using pyvis.
+
+        Args:
+            output_file: Path to output HTML file. Defaults to .autodoc/visualizations/code_graph.html
+        """
         if not self.query.driver:
             log.warning("No database connection available")
             return
+
+        # Default to .autodoc/visualizations/ directory
+        if output_file is None:
+            VISUALIZATIONS_DIR.mkdir(parents=True, exist_ok=True)
+            output_file = str(VISUALIZATIONS_DIR / "code_graph.html")
 
         # Create network
         net = Network(height="800px", width="100%", bgcolor="#222222", font_color="white")
@@ -897,11 +911,20 @@ class CodeGraphVisualizer:
         net.save_graph(output_file)
         log.info(f"Interactive graph saved to {output_file}")
 
-    def create_module_dependency_graph(self, output_file: str = "module_dependencies.png"):
-        """Create a module dependency graph"""
+    def create_module_dependency_graph(self, output_file: str = None):
+        """Create a module dependency graph.
+
+        Args:
+            output_file: Path to output PNG file. Defaults to .autodoc/visualizations/module_dependencies.png
+        """
         if not self.query.driver:
             log.warning("No database connection available")
             return
+
+        # Default to .autodoc/visualizations/ directory
+        if output_file is None:
+            VISUALIZATIONS_DIR.mkdir(parents=True, exist_ok=True)
+            output_file = str(VISUALIZATIONS_DIR / "module_dependencies.png")
 
         # Create directed graph
         G = nx.DiGraph()
@@ -939,8 +962,17 @@ class CodeGraphVisualizer:
 
         log.info(f"Module dependency graph saved to {output_file}")
 
-    def create_complexity_heatmap(self, output_file: str = "complexity_heatmap.html"):
-        """Create a complexity heatmap using plotly"""
+    def create_complexity_heatmap(self, output_file: str = None):
+        """Create a complexity heatmap using plotly.
+
+        Args:
+            output_file: Path to output HTML file. Defaults to .autodoc/visualizations/complexity_heatmap.html
+        """
+        # Default to .autodoc/visualizations/ directory
+        if output_file is None:
+            VISUALIZATIONS_DIR.mkdir(parents=True, exist_ok=True)
+            output_file = str(VISUALIZATIONS_DIR / "complexity_heatmap.html")
+
         complexity_data = self.query.get_module_complexity()
 
         if not complexity_data:

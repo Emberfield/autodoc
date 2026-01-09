@@ -93,7 +93,7 @@ class SkillGenerator:
         Generate a discoverable description for the SKILL.md frontmatter.
 
         Combines pack description with use cases and key components for
-        better AI discoverability.
+        better AI discoverability. Falls back to entity data if no LLM summary.
         """
         parts = []
 
@@ -125,6 +125,27 @@ class SkillGenerator:
                 component_names = [n for n in component_names if n]
                 if component_names:
                     parts.append(f"Key capabilities: {', '.join(component_names)}.")
+        else:
+            # Fallback: generate description from entities
+            entities = pack_data.get("entities", [])
+            if entities:
+                classes = [e for e in entities if e.get("type") == "class" or e.get("entity_type") == "class"]
+                functions = [e for e in entities if e.get("type") == "function" or e.get("entity_type") == "function"]
+
+                entity_summary = []
+                if classes:
+                    entity_summary.append(f"{len(classes)} classes")
+                if functions:
+                    entity_summary.append(f"{len(functions)} functions")
+
+                if entity_summary:
+                    parts.append(f"Contains {', '.join(entity_summary)}.")
+
+                # Add first few class/function names as hints
+                key_names = [c.get("name") for c in classes[:2] if c.get("name")]
+                key_names += [f.get("name") for f in functions[:2] if f.get("name") and not f.get("name", "").startswith("_")]
+                if key_names:
+                    parts.append(f"Includes: {', '.join(key_names[:4])}.")
 
         # Join and truncate
         full_description = " ".join(parts)
@@ -144,6 +165,7 @@ class SkillGenerator:
         Generate the full SKILL.md content from pack data.
 
         Returns a Markdown string with YAML frontmatter.
+        Works with or without LLM summaries - falls back to entity data.
         """
         skill_name = self.generate_skill_name(pack_data.get("name", "unnamed"))
         description = self.generate_description(pack_data)
@@ -165,13 +187,21 @@ class SkillGenerator:
 
         # Instructions section
         llm_summary = pack_data.get("llm_summary", {})
+        entities = pack_data.get("entities", [])
 
         # Architecture/overview
         architecture = llm_summary.get("architecture", "")
+        pack_description = pack_data.get("description", "")
         if architecture:
             sections.append("## Overview")
             sections.append("")
             sections.append(architecture)
+            sections.append("")
+        elif pack_description:
+            # Fallback: use pack description
+            sections.append("## Overview")
+            sections.append("")
+            sections.append(pack_description)
             sections.append("")
 
         # File locations
@@ -199,7 +229,7 @@ class SkillGenerator:
                         sections.append(f"- {pattern_desc}")
             sections.append("")
 
-        # Key Components table
+        # Key Components table - use LLM summary or fall back to entities
         key_components = llm_summary.get("key_components", [])
         if key_components:
             sections.append("## Key Components")
@@ -214,6 +244,33 @@ class SkillGenerator:
                     sections.append(f"| `{name}` | {role} |")
                 elif isinstance(comp, str):
                     sections.append(f"| `{comp}` | - |")
+
+            sections.append("")
+        elif entities and not llm_summary:
+            # Fallback: generate key components from entities
+            sections.append("## Key Components")
+            sections.append("")
+            sections.append("| Component | Type | Description |")
+            sections.append("|-----------|------|-------------|")
+
+            # Get classes first, then important functions
+            classes = [e for e in entities if e.get("type") == "class" or e.get("entity_type") == "class"]
+            functions = [e for e in entities if e.get("type") == "function" or e.get("entity_type") == "function"]
+
+            # Show up to 5 classes and 5 functions
+            for entity in classes[:5]:
+                name = entity.get("name", "Unknown")
+                docstring = entity.get("docstring", "")
+                desc = docstring.split("\n")[0][:60] if docstring else "-"
+                sections.append(f"| `{name}` | class | {desc} |")
+
+            for entity in functions[:5]:
+                name = entity.get("name", "Unknown")
+                if name.startswith("_"):  # Skip private functions
+                    continue
+                docstring = entity.get("docstring", "")
+                desc = docstring.split("\n")[0][:60] if docstring else "-"
+                sections.append(f"| `{name}` | function | {desc} |")
 
             sections.append("")
 

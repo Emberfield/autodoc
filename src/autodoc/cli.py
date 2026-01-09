@@ -1361,12 +1361,15 @@ def vector(regenerate):
 
 
 @cli.command(name="visualize-graph")
-@click.option("--output", "-o", default="code_graph.html", help="Output file for interactive graph")
+@click.option("--output", "-o", default=None, help="Output file for interactive graph (default: .autodoc/visualizations/)")
 @click.option("--deps", is_flag=True, help="Create module dependency graph")
 @click.option("--complexity", is_flag=True, help="Create complexity heatmap")
 @click.option("--all", "create_all", is_flag=True, help="Create all visualizations")
 def visualize_graph(output, deps, complexity, create_all):
-    """Create interactive visualizations of the code graph"""
+    """Create interactive visualizations of the code graph.
+
+    Output files are written to .autodoc/visualizations/ by default.
+    """
     if not GRAPH_AVAILABLE:
         console.print("[red]Graph functionality not available. Install graph dependencies:[/red]")
         console.print("pip install matplotlib plotly neo4j networkx pyvis")
@@ -1381,17 +1384,18 @@ def visualize_graph(output, deps, complexity, create_all):
 
         if create_all or not (deps or complexity):
             # Default: create interactive graph
+            out_file = output or ".autodoc/visualizations/code_graph.html"
             visualizer.create_interactive_graph(output)
-            created_files.append(output)
+            created_files.append(out_file)
 
         if create_all or deps:
-            deps_file = "module_dependencies.png"
-            visualizer.create_module_dependency_graph(deps_file)
+            deps_file = ".autodoc/visualizations/module_dependencies.png"
+            visualizer.create_module_dependency_graph()
             created_files.append(deps_file)
 
         if create_all or complexity:
-            complexity_file = "complexity_heatmap.html"
-            visualizer.create_complexity_heatmap(complexity_file)
+            complexity_file = ".autodoc/visualizations/complexity_heatmap.html"
+            visualizer.create_complexity_heatmap()
             created_files.append(complexity_file)
 
         query.close()
@@ -1699,7 +1703,10 @@ def generate_summary_alias(output, output_format):
 @click.option("--stats", is_flag=True, help="Show module statistics")
 @click.option("--all", "create_all", is_flag=True, help="Create all visualizations")
 def local_graph(files, entities, stats, create_all):
-    """Create code visualizations without Neo4j (uses local analysis)"""
+    """Create code visualizations without Neo4j (uses local analysis).
+
+    Output files are written to .autodoc/visualizations/ by default.
+    """
     if not LOCAL_GRAPH_AVAILABLE:
         console.print("[red]Local graph functionality not available.[/red]")
         console.print("This should not happen - please check the installation.")
