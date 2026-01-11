@@ -197,7 +197,7 @@ def workspace_summary(
     """Get workspace structure + key file contents in ONE call.
 
     Returns a comprehensive overview of the workspace including:
-    - Recursive directory tree (respecting .gitignore)
+    - Recursive directory tree (ignoring common non-essential directories)
     - Contents of key config files (package.json, pyproject.toml, etc.)
     - File type statistics
     - Analysis cache summary if available
@@ -212,7 +212,6 @@ def workspace_summary(
     Returns:
         JSON with workspace overview
     """
-    import os
     from collections import defaultdict
     from pathlib import Path
 
@@ -236,7 +235,7 @@ def workspace_summary(
         "CLAUDE.md",
     ]
 
-    # Patterns to ignore (similar to .gitignore)
+    # Patterns to ignore (common non-essential directories)
     ignore_patterns = {
         "__pycache__",
         "node_modules",
@@ -252,33 +251,51 @@ def workspace_summary(
         ".pytest_cache",
         ".ruff_cache",
         ".mypy_cache",
-        "*.egg-info",
         ".autodoc_chromadb",
     }
 
-    def should_ignore(path: Path) -> bool:
-        """Check if path should be ignored."""
-        for part in path.parts:
-            if part in ignore_patterns or part.endswith(".egg-info"):
-                return True
-        return False
+    def should_ignore(name: str) -> bool:
+        """Check if directory/file name should be ignored."""
+        return name in ignore_patterns or name.endswith(".egg-info")
 
-    # Build directory tree
+    # Track visited directories to prevent symlink loops
+    visited_dirs: set = set()
+
+    # Collect stats during tree traversal (single pass)
+    stats = defaultdict(lambda: {"count": 0, "total_size": 0}) if include_stats else None
+
     def build_tree(path: Path, depth: int = 0) -> dict:
+        """Build directory tree and optionally collect stats in single traversal."""
         if depth > max_depth:
-            return {"truncated": True}
+            return {"type": "dir", "truncated": True}
 
-        if should_ignore(path):
-            return None
+        # Symlink loop detection
+        if path.is_dir():
+            try:
+                real_path = path.resolve()
+                if real_path in visited_dirs:
+                    return {"type": "dir", "error": "symlink loop detected"}
+                visited_dirs.add(real_path)
+            except (OSError, RuntimeError):
+                pass  # Continue without loop detection if resolve fails
 
         if path.is_file():
-            return {"type": "file", "size": path.stat().st_size}
+            try:
+                size = path.stat().st_size
+                # Collect stats
+                if stats is not None:
+                    ext = path.suffix.lower() or "(no extension)"
+                    stats[ext]["count"] += 1
+                    stats[ext]["total_size"] += size
+                return {"type": "file", "size": size}
+            except (OSError, PermissionError):
+                return {"type": "file", "error": "cannot stat"}
 
         if path.is_dir():
             children = {}
             try:
                 for child in sorted(path.iterdir()):
-                    if should_ignore(child):
+                    if should_ignore(child.name):
                         continue
                     child_tree = build_tree(child, depth + 1)
                     if child_tree is not None:
@@ -308,29 +325,8 @@ def workspace_summary(
                     file_contents[filename] = f"Error reading: {e}"
         result["key_files"] = file_contents
 
-    # File statistics
-    if include_stats:
-        stats = defaultdict(lambda: {"count": 0, "total_size": 0})
-
-        def count_files(path: Path):
-            if should_ignore(path):
-                return
-            if path.is_file():
-                ext = path.suffix.lower() or "(no extension)"
-                stats[ext]["count"] += 1
-                try:
-                    stats[ext]["total_size"] += path.stat().st_size
-                except (OSError, PermissionError):
-                    pass
-            elif path.is_dir():
-                try:
-                    for child in path.iterdir():
-                        count_files(child)
-                except PermissionError:
-                    pass
-
-        count_files(base_path)
-
+    # File statistics (collected during tree traversal)
+    if include_stats and stats:
         # Sort by count and format
         sorted_stats = dict(
             sorted(stats.items(), key=lambda x: x[1]["count"], reverse=True)[:20]
@@ -384,12 +380,12 @@ def session_changes(
 ) -> str:
     """Get all files created/modified during this session using git.
 
-    Tracks file changes relative to a git reference (default: HEAD).
+    Tracks file changes relative to a git reference.
     Useful for reviewing what you've changed, generating commit messages,
     or understanding session scope.
 
     Args:
-        since: Git reference to compare against (default: "HEAD", can use "HEAD~5", commit hash, etc.)
+        since: Git reference to compare against (default: "HEAD", can use "HEAD~5", branch name, commit hash)
         include_diff: Include actual diff content for changed files (default: False)
         include_staged: Include staged changes (default: True)
         include_unstaged: Include unstaged changes (default: True)
@@ -408,63 +404,90 @@ def session_changes(
             "staged": [],
             "unstaged": [],
             "untracked": [],
+            "committed_since": [],
         },
         "summary": {
             "total_changed": 0,
             "staged_count": 0,
             "unstaged_count": 0,
             "untracked_count": 0,
+            "committed_since_count": 0,
         },
     }
 
-    # Check if git repo
-    git_dir = base_path / ".git"
-    if not git_dir.exists():
+    # Check if git repo (handle both regular repos and worktrees)
+    try:
+        check_result = subprocess.run(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            capture_output=True,
+            text=True,
+            cwd=base_path,
+            timeout=5,
+        )
+        if check_result.returncode != 0:
+            return json.dumps({
+                "error": "Not a git repository",
+                "hint": "This tool requires a git repository to track changes",
+            })
+    except subprocess.TimeoutExpired:
+        return json.dumps({"error": "Git command timed out"})
+    except FileNotFoundError:
         return json.dumps({
-            "error": "Not a git repository",
-            "hint": "This tool requires a git repository to track changes",
+            "error": "git command not found",
+            "hint": "Install git to use this tool",
         })
 
+    def parse_status_output(output: str) -> list:
+        """Parse git diff --name-status output."""
+        changes = []
+        status_map = {"A": "added", "M": "modified", "D": "deleted", "R": "renamed", "C": "copied"}
+        for line in output.strip().split("\n"):
+            if line:
+                parts = line.split("\t", 1)
+                if len(parts) == 2:
+                    status, filename = parts
+                    changes.append({
+                        "file": filename,
+                        "status": status_map.get(status[0], status),
+                    })
+        return changes
+
     try:
-        # Get staged changes
+        # Get changes committed since the reference (if not HEAD)
+        if since != "HEAD":
+            committed_result = subprocess.run(
+                ["git", "diff", "--name-status", since, "HEAD"],
+                capture_output=True,
+                text=True,
+                cwd=base_path,
+                timeout=10,
+            )
+            if committed_result.returncode == 0:
+                result["changes"]["committed_since"] = parse_status_output(committed_result.stdout)
+
+        # Get staged changes (comparing index to HEAD)
         if include_staged:
             staged_result = subprocess.run(
                 ["git", "diff", "--cached", "--name-status"],
                 capture_output=True,
                 text=True,
                 cwd=base_path,
+                timeout=10,
             )
             if staged_result.returncode == 0:
-                for line in staged_result.stdout.strip().split("\n"):
-                    if line:
-                        parts = line.split("\t", 1)
-                        if len(parts) == 2:
-                            status, filename = parts
-                            status_map = {"A": "added", "M": "modified", "D": "deleted", "R": "renamed"}
-                            result["changes"]["staged"].append({
-                                "file": filename,
-                                "status": status_map.get(status[0], status),
-                            })
+                result["changes"]["staged"] = parse_status_output(staged_result.stdout)
 
-        # Get unstaged changes
+        # Get unstaged changes (comparing working tree to index)
         if include_unstaged:
             unstaged_result = subprocess.run(
                 ["git", "diff", "--name-status"],
                 capture_output=True,
                 text=True,
                 cwd=base_path,
+                timeout=10,
             )
             if unstaged_result.returncode == 0:
-                for line in unstaged_result.stdout.strip().split("\n"):
-                    if line:
-                        parts = line.split("\t", 1)
-                        if len(parts) == 2:
-                            status, filename = parts
-                            status_map = {"A": "added", "M": "modified", "D": "deleted", "R": "renamed"}
-                            result["changes"]["unstaged"].append({
-                                "file": filename,
-                                "status": status_map.get(status[0], status),
-                            })
+                result["changes"]["unstaged"] = parse_status_output(unstaged_result.stdout)
 
         # Get untracked files
         untracked_result = subprocess.run(
@@ -472,6 +495,7 @@ def session_changes(
             capture_output=True,
             text=True,
             cwd=base_path,
+            timeout=10,
         )
         if untracked_result.returncode == 0:
             for line in untracked_result.stdout.strip().split("\n"):
@@ -481,25 +505,48 @@ def session_changes(
                         "status": "new",
                     })
 
-        # Include diff if requested
+        # Include diff if requested (both staged and unstaged)
         if include_diff:
-            diff_result = subprocess.run(
-                ["git", "diff", "--cached"] if include_staged else ["git", "diff"],
-                capture_output=True,
-                text=True,
-                cwd=base_path,
-            )
-            if diff_result.returncode == 0 and diff_result.stdout:
-                # Truncate very long diffs
-                diff_content = diff_result.stdout
-                if len(diff_content) > 10000:
-                    diff_content = diff_content[:10000] + "\n... (truncated)"
-                result["diff"] = diff_content
+            diffs = []
+
+            if include_staged and result["changes"]["staged"]:
+                staged_diff = subprocess.run(
+                    ["git", "diff", "--cached"],
+                    capture_output=True,
+                    text=True,
+                    cwd=base_path,
+                    timeout=30,
+                )
+                if staged_diff.returncode == 0 and staged_diff.stdout:
+                    diffs.append(("staged", staged_diff.stdout))
+
+            if include_unstaged and result["changes"]["unstaged"]:
+                unstaged_diff = subprocess.run(
+                    ["git", "diff"],
+                    capture_output=True,
+                    text=True,
+                    cwd=base_path,
+                    timeout=30,
+                )
+                if unstaged_diff.returncode == 0 and unstaged_diff.stdout:
+                    diffs.append(("unstaged", unstaged_diff.stdout))
+
+            # Combine and truncate
+            combined_diff = ""
+            for diff_type, diff_content in diffs:
+                combined_diff += f"=== {diff_type.upper()} CHANGES ===\n{diff_content}\n"
+
+            if len(combined_diff) > 15000:
+                combined_diff = combined_diff[:15000] + "\n... (truncated)"
+
+            if combined_diff:
+                result["diff"] = combined_diff
 
         # Update summary
         result["summary"]["staged_count"] = len(result["changes"]["staged"])
         result["summary"]["unstaged_count"] = len(result["changes"]["unstaged"])
         result["summary"]["untracked_count"] = len(result["changes"]["untracked"])
+        result["summary"]["committed_since_count"] = len(result["changes"]["committed_since"])
         result["summary"]["total_changed"] = (
             result["summary"]["staged_count"]
             + result["summary"]["unstaged_count"]
@@ -512,15 +559,13 @@ def session_changes(
             capture_output=True,
             text=True,
             cwd=base_path,
+            timeout=5,
         )
         if branch_result.returncode == 0:
             result["branch"] = branch_result.stdout.strip()
 
-    except FileNotFoundError:
-        return json.dumps({
-            "error": "git command not found",
-            "hint": "Install git to use this tool",
-        })
+    except subprocess.TimeoutExpired:
+        return json.dumps({"error": "Git command timed out"})
     except Exception as e:
         return json.dumps({
             "error": f"Failed to get git status: {e}",
@@ -533,18 +578,22 @@ def session_changes(
 @safe_json_response
 def reindex_file(
     file_path: str,
+    update_packs: bool = True,
 ) -> str:
     """Re-index a single file after modification.
 
     Call this after modifying a file to update the analysis cache
-    with fresh entity data and line numbers.
+    with fresh entity data and line numbers. Also updates any pack
+    caches that include this file.
 
     Args:
         file_path: Path to the file to re-index (relative or absolute)
+        update_packs: Also update pack caches containing this file (default: True)
 
     Returns:
         JSON with re-indexing results
     """
+    import fnmatch
     from pathlib import Path as PathLib
 
     base_path = PathLib.cwd()
@@ -553,6 +602,12 @@ def reindex_file(
     # Make absolute if relative
     if not target_path.is_absolute():
         target_path = base_path / target_path
+
+    # Resolve to canonical path (handles .. and symlinks)
+    try:
+        target_path = target_path.resolve()
+    except (OSError, RuntimeError):
+        pass  # Keep as-is if resolve fails
 
     if not target_path.exists():
         return json.dumps({
@@ -586,11 +641,35 @@ def reindex_file(
     except Exception as e:
         return json.dumps({"error": f"Failed to load cache: {e}"})
 
+    # Helper to normalize and compare paths
+    def paths_match(cached_path: str, target: PathLib) -> bool:
+        """Check if cached path refers to the same file as target."""
+        cached = PathLib(cached_path)
+        # Try multiple comparison strategies
+        try:
+            # 1. Direct string match
+            if str(cached) == str(target):
+                return True
+            # 2. Resolved path match
+            if cached.is_absolute():
+                return cached.resolve() == target
+            else:
+                # Relative path - resolve from base
+                return (base_path / cached).resolve() == target
+        except (OSError, RuntimeError):
+            return False
+
     # Remove old entities for this file
     old_entities = cache_data.get("entities", [])
-    file_str = str(target_path)
-    new_entities = [e for e in old_entities if e.get("file_path") != file_str]
-    removed_count = len(old_entities) - len(new_entities)
+    new_entities = []
+    removed_count = 0
+
+    for entity in old_entities:
+        entity_path = entity.get("file_path", entity.get("file", ""))
+        if paths_match(entity_path, target_path):
+            removed_count += 1
+        else:
+            new_entities.append(entity)
 
     # Analyze the file
     try:
@@ -612,18 +691,28 @@ def reindex_file(
                     "hint": "TypeScript support requires tree-sitter",
                 })
 
-        # Convert entities to dict format
+        # Convert entities to dict format with ALL fields
         added_entities = []
         for entity in entities:
             entity_dict = {
                 "type": entity.type,
                 "name": entity.name,
-                "file_path": str(entity.file_path),
+                "file_path": str(target_path),
                 "line_number": entity.line_number,
                 "docstring": entity.docstring,
                 "code": entity.code[:500] if entity.code else None,
-                "decorators": entity.decorators,
-                "parameters": entity.parameters,
+                "embedding": None,  # Will need re-embedding
+                "decorators": getattr(entity, "decorators", []),
+                "http_methods": getattr(entity, "http_methods", []),
+                "route_path": getattr(entity, "route_path", None),
+                "is_internal": getattr(entity, "is_internal", False),
+                "framework": getattr(entity, "framework", None),
+                "endpoint_type": getattr(entity, "endpoint_type", None),
+                "auth_required": getattr(entity, "auth_required", False),
+                "parameters": getattr(entity, "parameters", []),
+                "response_type": getattr(entity, "response_type", None),
+                "external_domain": getattr(entity, "external_domain", None),
+                "external_calls": getattr(entity, "external_calls", []),
             }
             added_entities.append(entity_dict)
             new_entities.append(entity_dict)
@@ -633,13 +722,67 @@ def reindex_file(
         with open(cache_file, "w") as f:
             json.dump(cache_data, f, indent=2)
 
-        return json.dumps({
+        result = {
             "success": True,
             "file": file_path,
             "removed_entities": removed_count,
             "added_entities": len(added_entities),
             "total_entities": len(new_entities),
-        })
+            "packs_updated": [],
+        }
+
+        # Update pack caches if requested
+        if update_packs:
+            packs_dir = base_path / ".autodoc" / "packs"
+            if packs_dir.exists():
+                config = get_config()
+
+                # Get relative path for pattern matching
+                try:
+                    rel_path = target_path.relative_to(base_path)
+                except ValueError:
+                    rel_path = target_path
+
+                for pack_config in config.context_packs:
+                    # Check if file matches any pack pattern
+                    matches_pack = False
+                    for pattern in pack_config.files:
+                        if fnmatch.fnmatch(str(rel_path), pattern):
+                            matches_pack = True
+                            break
+                        # Also try with ** glob
+                        if "**" in pattern:
+                            base_pattern = pattern.split("**")[0].rstrip("/")
+                            if base_pattern and base_pattern in str(rel_path):
+                                matches_pack = True
+                                break
+
+                    if matches_pack:
+                        pack_file = packs_dir / f"{pack_config.name}.json"
+                        if pack_file.exists():
+                            try:
+                                with open(pack_file) as f:
+                                    pack_data = json.load(f)
+
+                                # Remove old entities for this file from pack
+                                pack_entities = pack_data.get("entities", [])
+                                updated_entities = [
+                                    e for e in pack_entities
+                                    if not paths_match(e.get("file_path", ""), target_path)
+                                ]
+
+                                # Add new entities
+                                updated_entities.extend(added_entities)
+                                pack_data["entities"] = updated_entities
+
+                                with open(pack_file, "w") as f:
+                                    json.dump(pack_data, f, indent=2)
+
+                                result["packs_updated"].append(pack_config.name)
+                            except Exception as e:
+                                log.warning(f"Failed to update pack {pack_config.name}: {e}")
+
+        return json.dumps(result)
 
     except Exception as e:
         return json.dumps({
