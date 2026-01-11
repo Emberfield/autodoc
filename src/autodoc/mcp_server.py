@@ -95,6 +95,16 @@ def capabilities() -> str:
     import os
 
     result = {
+        "workspace_tools": {
+            "status": "available",
+            "tools": [
+                "workspace_summary",
+                "session_changes",
+                "reindex_file",
+                "capabilities",
+            ],
+            "description": "Workspace overview, session tracking, and incremental re-indexing",
+        },
         "core_tools": {
             "status": "available",
             "tools": [
@@ -112,7 +122,7 @@ def capabilities() -> str:
                 "generate",
                 "check",
             ],
-            "description": "Always available - context pack and basic analysis tools",
+            "description": "Context pack and basic analysis tools",
         },
         "enrichment_tools": {
             "tools": ["enrich"],
@@ -175,6 +185,466 @@ def capabilities() -> str:
     }
 
     return json.dumps(result, indent=2)
+
+
+@mcp.tool
+@safe_json_response
+def workspace_summary(
+    include_file_contents: bool = True,
+    max_depth: int = 4,
+    include_stats: bool = True,
+) -> str:
+    """Get workspace structure + key file contents in ONE call.
+
+    Returns a comprehensive overview of the workspace including:
+    - Recursive directory tree (respecting .gitignore)
+    - Contents of key config files (package.json, pyproject.toml, etc.)
+    - File type statistics
+    - Analysis cache summary if available
+
+    Use this as your FIRST call when starting work on a new codebase.
+
+    Args:
+        include_file_contents: Include contents of key config files (default: True)
+        max_depth: Maximum directory depth to traverse (default: 4)
+        include_stats: Include file type statistics (default: True)
+
+    Returns:
+        JSON with workspace overview
+    """
+    import os
+    from collections import defaultdict
+    from pathlib import Path
+
+    base_path = Path.cwd()
+    result = {
+        "workspace": str(base_path),
+        "name": base_path.name,
+    }
+
+    # Key files to read contents of
+    key_files = [
+        "package.json",
+        "pyproject.toml",
+        "setup.py",
+        "Cargo.toml",
+        "go.mod",
+        "tsconfig.json",
+        "README.md",
+        ".autodoc.yml",
+        ".autodoc.yaml",
+        "CLAUDE.md",
+    ]
+
+    # Patterns to ignore (similar to .gitignore)
+    ignore_patterns = {
+        "__pycache__",
+        "node_modules",
+        ".git",
+        ".venv",
+        "venv",
+        ".env",
+        "dist",
+        "build",
+        ".next",
+        ".nuxt",
+        "target",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".mypy_cache",
+        "*.egg-info",
+        ".autodoc_chromadb",
+    }
+
+    def should_ignore(path: Path) -> bool:
+        """Check if path should be ignored."""
+        for part in path.parts:
+            if part in ignore_patterns or part.endswith(".egg-info"):
+                return True
+        return False
+
+    # Build directory tree
+    def build_tree(path: Path, depth: int = 0) -> dict:
+        if depth > max_depth:
+            return {"truncated": True}
+
+        if should_ignore(path):
+            return None
+
+        if path.is_file():
+            return {"type": "file", "size": path.stat().st_size}
+
+        if path.is_dir():
+            children = {}
+            try:
+                for child in sorted(path.iterdir()):
+                    if should_ignore(child):
+                        continue
+                    child_tree = build_tree(child, depth + 1)
+                    if child_tree is not None:
+                        children[child.name] = child_tree
+            except PermissionError:
+                return {"type": "dir", "error": "permission denied"}
+
+            return {"type": "dir", "children": children}
+
+        return None
+
+    result["tree"] = build_tree(base_path)
+
+    # Read key file contents
+    if include_file_contents:
+        file_contents = {}
+        for filename in key_files:
+            file_path = base_path / filename
+            if file_path.exists() and file_path.is_file():
+                try:
+                    content = file_path.read_text(encoding="utf-8")
+                    # Truncate very large files
+                    if len(content) > 5000:
+                        content = content[:5000] + "\n... (truncated)"
+                    file_contents[filename] = content
+                except Exception as e:
+                    file_contents[filename] = f"Error reading: {e}"
+        result["key_files"] = file_contents
+
+    # File statistics
+    if include_stats:
+        stats = defaultdict(lambda: {"count": 0, "total_size": 0})
+
+        def count_files(path: Path):
+            if should_ignore(path):
+                return
+            if path.is_file():
+                ext = path.suffix.lower() or "(no extension)"
+                stats[ext]["count"] += 1
+                try:
+                    stats[ext]["total_size"] += path.stat().st_size
+                except (OSError, PermissionError):
+                    pass
+            elif path.is_dir():
+                try:
+                    for child in path.iterdir():
+                        count_files(child)
+                except PermissionError:
+                    pass
+
+        count_files(base_path)
+
+        # Sort by count and format
+        sorted_stats = dict(
+            sorted(stats.items(), key=lambda x: x[1]["count"], reverse=True)[:20]
+        )
+        result["file_stats"] = sorted_stats
+
+    # Include analysis cache summary if available
+    cache_file = base_path / "autodoc_cache.json"
+    if cache_file.exists():
+        try:
+            with open(cache_file) as f:
+                cache_data = json.load(f)
+                entities = cache_data.get("entities", [])
+                result["analysis_summary"] = {
+                    "cached": True,
+                    "entity_count": len(entities),
+                    "entity_types": {},
+                }
+                for entity in entities:
+                    etype = entity.get("type", "unknown")
+                    result["analysis_summary"]["entity_types"][etype] = (
+                        result["analysis_summary"]["entity_types"].get(etype, 0) + 1
+                    )
+        except Exception:
+            result["analysis_summary"] = {"cached": False}
+    else:
+        result["analysis_summary"] = {
+            "cached": False,
+            "hint": "Run 'autodoc analyze --save' to enable code search",
+        }
+
+    # Include pack summary if available
+    packs_dir = base_path / ".autodoc" / "packs"
+    if packs_dir.exists():
+        pack_files = list(packs_dir.glob("*.json"))
+        result["packs_summary"] = {
+            "count": len(pack_files),
+            "names": [p.stem for p in pack_files],
+        }
+
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool
+@safe_json_response
+def session_changes(
+    since: str = "HEAD",
+    include_diff: bool = False,
+    include_staged: bool = True,
+    include_unstaged: bool = True,
+) -> str:
+    """Get all files created/modified during this session using git.
+
+    Tracks file changes relative to a git reference (default: HEAD).
+    Useful for reviewing what you've changed, generating commit messages,
+    or understanding session scope.
+
+    Args:
+        since: Git reference to compare against (default: "HEAD", can use "HEAD~5", commit hash, etc.)
+        include_diff: Include actual diff content for changed files (default: False)
+        include_staged: Include staged changes (default: True)
+        include_unstaged: Include unstaged changes (default: True)
+
+    Returns:
+        JSON with lists of created, modified, deleted, and staged files
+    """
+    import subprocess
+    from pathlib import Path
+
+    base_path = Path.cwd()
+    result = {
+        "workspace": str(base_path),
+        "reference": since,
+        "changes": {
+            "staged": [],
+            "unstaged": [],
+            "untracked": [],
+        },
+        "summary": {
+            "total_changed": 0,
+            "staged_count": 0,
+            "unstaged_count": 0,
+            "untracked_count": 0,
+        },
+    }
+
+    # Check if git repo
+    git_dir = base_path / ".git"
+    if not git_dir.exists():
+        return json.dumps({
+            "error": "Not a git repository",
+            "hint": "This tool requires a git repository to track changes",
+        })
+
+    try:
+        # Get staged changes
+        if include_staged:
+            staged_result = subprocess.run(
+                ["git", "diff", "--cached", "--name-status"],
+                capture_output=True,
+                text=True,
+                cwd=base_path,
+            )
+            if staged_result.returncode == 0:
+                for line in staged_result.stdout.strip().split("\n"):
+                    if line:
+                        parts = line.split("\t", 1)
+                        if len(parts) == 2:
+                            status, filename = parts
+                            status_map = {"A": "added", "M": "modified", "D": "deleted", "R": "renamed"}
+                            result["changes"]["staged"].append({
+                                "file": filename,
+                                "status": status_map.get(status[0], status),
+                            })
+
+        # Get unstaged changes
+        if include_unstaged:
+            unstaged_result = subprocess.run(
+                ["git", "diff", "--name-status"],
+                capture_output=True,
+                text=True,
+                cwd=base_path,
+            )
+            if unstaged_result.returncode == 0:
+                for line in unstaged_result.stdout.strip().split("\n"):
+                    if line:
+                        parts = line.split("\t", 1)
+                        if len(parts) == 2:
+                            status, filename = parts
+                            status_map = {"A": "added", "M": "modified", "D": "deleted", "R": "renamed"}
+                            result["changes"]["unstaged"].append({
+                                "file": filename,
+                                "status": status_map.get(status[0], status),
+                            })
+
+        # Get untracked files
+        untracked_result = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard"],
+            capture_output=True,
+            text=True,
+            cwd=base_path,
+        )
+        if untracked_result.returncode == 0:
+            for line in untracked_result.stdout.strip().split("\n"):
+                if line:
+                    result["changes"]["untracked"].append({
+                        "file": line,
+                        "status": "new",
+                    })
+
+        # Include diff if requested
+        if include_diff:
+            diff_result = subprocess.run(
+                ["git", "diff", "--cached"] if include_staged else ["git", "diff"],
+                capture_output=True,
+                text=True,
+                cwd=base_path,
+            )
+            if diff_result.returncode == 0 and diff_result.stdout:
+                # Truncate very long diffs
+                diff_content = diff_result.stdout
+                if len(diff_content) > 10000:
+                    diff_content = diff_content[:10000] + "\n... (truncated)"
+                result["diff"] = diff_content
+
+        # Update summary
+        result["summary"]["staged_count"] = len(result["changes"]["staged"])
+        result["summary"]["unstaged_count"] = len(result["changes"]["unstaged"])
+        result["summary"]["untracked_count"] = len(result["changes"]["untracked"])
+        result["summary"]["total_changed"] = (
+            result["summary"]["staged_count"]
+            + result["summary"]["unstaged_count"]
+            + result["summary"]["untracked_count"]
+        )
+
+        # Get current branch
+        branch_result = subprocess.run(
+            ["git", "branch", "--show-current"],
+            capture_output=True,
+            text=True,
+            cwd=base_path,
+        )
+        if branch_result.returncode == 0:
+            result["branch"] = branch_result.stdout.strip()
+
+    except FileNotFoundError:
+        return json.dumps({
+            "error": "git command not found",
+            "hint": "Install git to use this tool",
+        })
+    except Exception as e:
+        return json.dumps({
+            "error": f"Failed to get git status: {e}",
+        })
+
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool
+@safe_json_response
+def reindex_file(
+    file_path: str,
+) -> str:
+    """Re-index a single file after modification.
+
+    Call this after modifying a file to update the analysis cache
+    with fresh entity data and line numbers.
+
+    Args:
+        file_path: Path to the file to re-index (relative or absolute)
+
+    Returns:
+        JSON with re-indexing results
+    """
+    from pathlib import Path as PathLib
+
+    base_path = PathLib.cwd()
+    target_path = PathLib(file_path)
+
+    # Make absolute if relative
+    if not target_path.is_absolute():
+        target_path = base_path / target_path
+
+    if not target_path.exists():
+        return json.dumps({
+            "error": f"File not found: {file_path}",
+        })
+
+    if not target_path.is_file():
+        return json.dumps({
+            "error": f"Not a file: {file_path}",
+        })
+
+    # Determine file type
+    suffix = target_path.suffix.lower()
+    if suffix not in [".py", ".ts", ".tsx", ".js", ".jsx"]:
+        return json.dumps({
+            "error": f"Unsupported file type: {suffix}",
+            "supported": [".py", ".ts", ".tsx", ".js", ".jsx"],
+        })
+
+    # Load existing cache
+    cache_file = base_path / "autodoc_cache.json"
+    if not cache_file.exists():
+        return json.dumps({
+            "error": "No analysis cache found",
+            "hint": "Run 'autodoc analyze --save' first to create initial cache",
+        })
+
+    try:
+        with open(cache_file) as f:
+            cache_data = json.load(f)
+    except Exception as e:
+        return json.dumps({"error": f"Failed to load cache: {e}"})
+
+    # Remove old entities for this file
+    old_entities = cache_data.get("entities", [])
+    file_str = str(target_path)
+    new_entities = [e for e in old_entities if e.get("file_path") != file_str]
+    removed_count = len(old_entities) - len(new_entities)
+
+    # Analyze the file
+    try:
+        if suffix == ".py":
+            from .analyzer import SimpleASTAnalyzer
+
+            analyzer = SimpleASTAnalyzer()
+            entities = analyzer.analyze_file(target_path)
+        else:
+            # TypeScript/JavaScript - use typescript analyzer
+            try:
+                from .typescript_analyzer import TypeScriptAnalyzer
+
+                analyzer = TypeScriptAnalyzer()
+                entities = analyzer.analyze_file(target_path)
+            except ImportError:
+                return json.dumps({
+                    "error": "TypeScript analyzer not available",
+                    "hint": "TypeScript support requires tree-sitter",
+                })
+
+        # Convert entities to dict format
+        added_entities = []
+        for entity in entities:
+            entity_dict = {
+                "type": entity.type,
+                "name": entity.name,
+                "file_path": str(entity.file_path),
+                "line_number": entity.line_number,
+                "docstring": entity.docstring,
+                "code": entity.code[:500] if entity.code else None,
+                "decorators": entity.decorators,
+                "parameters": entity.parameters,
+            }
+            added_entities.append(entity_dict)
+            new_entities.append(entity_dict)
+
+        # Save updated cache
+        cache_data["entities"] = new_entities
+        with open(cache_file, "w") as f:
+            json.dump(cache_data, f, indent=2)
+
+        return json.dumps({
+            "success": True,
+            "file": file_path,
+            "removed_entities": removed_count,
+            "added_entities": len(added_entities),
+            "total_entities": len(new_entities),
+        })
+
+    except Exception as e:
+        return json.dumps({
+            "error": f"Failed to analyze file: {e}",
+        })
 
 
 @mcp.tool
