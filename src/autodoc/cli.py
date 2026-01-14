@@ -4843,34 +4843,45 @@ def upgrade(check_only, yes, pre):
             console.print("[dim]Upgrade cancelled[/dim]")
             return
 
-    # Determine which package manager to use
-    # Try uv first (faster), fall back to pip
-    pip_cmd = None
+    # Determine which package manager to use based on how autodoc was installed
+    upgrade_cmd = None
+    is_uv_tool = False
 
-    # Check if we're in a uv environment
+    # Check if installed as a uv tool (executable in ~/.local/share/uv/tools/)
     try:
-        result = subprocess.run(
-            ["uv", "--version"],
-            capture_output=True,
-            text=True
-        )
-        if result.returncode == 0:
-            pip_cmd = ["uv", "pip", "install", "--upgrade", "ai-code-autodoc"]
-    except FileNotFoundError:
+        import shutil
+        autodoc_path = shutil.which("autodoc")
+        if autodoc_path and "uv/tools" in autodoc_path:
+            is_uv_tool = True
+            upgrade_cmd = ["uv", "tool", "install", "--force", "--upgrade", "ai-code-autodoc"]
+    except Exception:
         pass
 
+    if not upgrade_cmd:
+        # Check if uv is available for pip install
+        try:
+            result = subprocess.run(
+                ["uv", "--version"],
+                capture_output=True,
+                text=True
+            )
+            if result.returncode == 0:
+                upgrade_cmd = ["uv", "pip", "install", "--upgrade", "ai-code-autodoc"]
+        except FileNotFoundError:
+            pass
+
     # Fall back to pip
-    if pip_cmd is None:
-        pip_cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "ai-code-autodoc"]
+    if upgrade_cmd is None:
+        upgrade_cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "ai-code-autodoc"]
 
-    if pre:
-        pip_cmd.append("--pre")
+    if pre and not is_uv_tool:
+        upgrade_cmd.append("--pre")
 
-    console.print(f"\n[dim]Running: {' '.join(pip_cmd)}[/dim]")
+    console.print(f"\n[dim]Running: {' '.join(upgrade_cmd)}[/dim]")
 
     try:
         result = subprocess.run(
-            pip_cmd,
+            upgrade_cmd,
             capture_output=True,
             text=True
         )
@@ -4882,11 +4893,17 @@ def upgrade(check_only, yes, pre):
             console.print(f"[red]Upgrade failed:[/red]")
             if result.stderr:
                 console.print(f"[red]{result.stderr}[/red]")
-            console.print("\n[dim]Try manually: pip install --upgrade ai-code-autodoc[/dim]")
+            if is_uv_tool:
+                console.print("\n[dim]Try manually: uv tool install --force --upgrade ai-code-autodoc[/dim]")
+            else:
+                console.print("\n[dim]Try manually: pip install --upgrade ai-code-autodoc[/dim]")
 
     except Exception as e:
         console.print(f"[red]Error during upgrade: {e}[/red]")
-        console.print("\n[dim]Try manually: pip install --upgrade ai-code-autodoc[/dim]")
+        if is_uv_tool:
+            console.print("\n[dim]Try manually: uv tool install --force --upgrade ai-code-autodoc[/dim]")
+        else:
+            console.print("\n[dim]Try manually: pip install --upgrade ai-code-autodoc[/dim]")
 
 
 def main():
