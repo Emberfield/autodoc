@@ -4758,6 +4758,137 @@ exit 0
     console.print("\n[dim]To uninstall: rm .git/hooks/pre-commit[/dim]")
 
 
+@cli.command()
+@click.option("--check", "check_only", is_flag=True, help="Only check for updates, don't install")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
+@click.option("--pre", is_flag=True, help="Include pre-release versions")
+def upgrade(check_only, yes, pre):
+    """Upgrade autodoc to the latest version.
+
+    Examples:
+        autodoc upgrade           # Upgrade to latest version
+        autodoc upgrade --check   # Check for updates without installing
+        autodoc upgrade -y        # Upgrade without confirmation
+    """
+    import subprocess
+    import sys
+
+    from .__about__ import __version__ as current_version
+
+    console.print(f"[blue]Current version:[/blue] {current_version}")
+
+    # Check PyPI for latest version
+    console.print("[dim]Checking PyPI for latest version...[/dim]")
+    try:
+        import urllib.request
+        import json as json_module
+
+        url = "https://pypi.org/pypi/ai-code-autodoc/json"
+        with urllib.request.urlopen(url, timeout=10) as response:
+            data = json_module.loads(response.read().decode())
+
+        # Get all versions and filter based on --pre flag
+        all_versions = list(data["releases"].keys())
+
+        # Filter out pre-release versions unless --pre flag is set
+        if pre:
+            stable_versions = all_versions
+        else:
+            stable_versions = [v for v in all_versions if not any(x in v for x in ['a', 'b', 'rc', 'dev'])]
+
+        if not stable_versions:
+            console.print("[yellow]No stable versions found on PyPI[/yellow]")
+            return
+
+        # Sort versions and get latest
+        from packaging.version import parse as parse_version
+        stable_versions.sort(key=parse_version, reverse=True)
+        latest_version = stable_versions[0]
+
+    except urllib.error.URLError as e:
+        console.print(f"[red]Failed to check PyPI: {e}[/red]")
+        console.print("[dim]You can manually upgrade with: pip install --upgrade ai-code-autodoc[/dim]")
+        return
+    except Exception as e:
+        console.print(f"[red]Error checking for updates: {e}[/red]")
+        return
+
+    console.print(f"[blue]Latest version:[/blue]  {latest_version}")
+
+    # Compare versions
+    try:
+        from packaging.version import parse as parse_version
+        current_parsed = parse_version(current_version)
+        latest_parsed = parse_version(latest_version)
+
+        if current_parsed >= latest_parsed:
+            console.print("\n[green]✓ You are already on the latest version![/green]")
+            return
+
+    except Exception:
+        # If version parsing fails, compare as strings
+        if current_version == latest_version:
+            console.print("\n[green]✓ You are already on the latest version![/green]")
+            return
+
+    console.print(f"\n[yellow]Update available: {current_version} → {latest_version}[/yellow]")
+
+    if check_only:
+        console.print("\n[dim]Run 'autodoc upgrade' to install the update[/dim]")
+        return
+
+    # Confirm upgrade
+    if not yes:
+        if not click.confirm("Do you want to upgrade?"):
+            console.print("[dim]Upgrade cancelled[/dim]")
+            return
+
+    # Determine which package manager to use
+    # Try uv first (faster), fall back to pip
+    pip_cmd = None
+
+    # Check if we're in a uv environment
+    try:
+        result = subprocess.run(
+            ["uv", "--version"],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode == 0:
+            pip_cmd = ["uv", "pip", "install", "--upgrade", "ai-code-autodoc"]
+    except FileNotFoundError:
+        pass
+
+    # Fall back to pip
+    if pip_cmd is None:
+        pip_cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "ai-code-autodoc"]
+
+    if pre:
+        pip_cmd.append("--pre")
+
+    console.print(f"\n[dim]Running: {' '.join(pip_cmd)}[/dim]")
+
+    try:
+        result = subprocess.run(
+            pip_cmd,
+            capture_output=True,
+            text=True
+        )
+
+        if result.returncode == 0:
+            console.print(f"\n[green]✓ Successfully upgraded to {latest_version}![/green]")
+            console.print("[dim]Restart your terminal or run 'autodoc --help' to use the new version[/dim]")
+        else:
+            console.print(f"[red]Upgrade failed:[/red]")
+            if result.stderr:
+                console.print(f"[red]{result.stderr}[/red]")
+            console.print("\n[dim]Try manually: pip install --upgrade ai-code-autodoc[/dim]")
+
+    except Exception as e:
+        console.print(f"[red]Error during upgrade: {e}[/red]")
+        console.print("\n[dim]Try manually: pip install --upgrade ai-code-autodoc[/dim]")
+
+
 def main():
     cli()
 
